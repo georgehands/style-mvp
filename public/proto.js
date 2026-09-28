@@ -1,14 +1,31 @@
-const STORE_KEY = 'style-proto-v2';
+const STORE_KEY = 'style-proto-v3';
 const screen = document.getElementById('screen');
 const tabs = document.getElementById('tabs');
+
 const MONTHLY = { 'Under £50': 40, '£50–150': 100, '£150–300': 225, '£300+': 350 };
-const GOALS = ['Back on dating apps', 'Feel invisible', 'New job', 'Look put together', 'Just want a change'];
+const GOALS = ['Improve my overall look', 'Expand my wardrobe', 'Start again from scratch', 'Dress better for work', 'Find a style that’s actually me', 'Upgrade the basics'];
+const WORK = ['Office, smart', 'Office, casual', 'Work from home', 'On my feet or on site', 'Student'];
+const GYM = ['Rarely', '1–2 times a week', '3+ times a week'];
+const OUT = ['Rarely', 'Now and then', 'Most weekends'];
+const WEEKENDS = ['Outdoors', 'City and cafés', 'Sport', 'Travel', 'Mostly at home'];
+const FITS = ['Slim', 'Regular', 'Relaxed'];
+const COLOURS = ['Mostly neutrals', 'Earth tones', 'Happy with some colour'];
+const NEVER = ['Shorts', 'Hoodies', 'Boots', 'Blazers', 'Tight fits', 'Secondhand'];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = (n) => `£${Math.round(n).toLocaleString('en-GB')}`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 const blank = () => ({ profile: null, picks: {}, ownedIds: [], ownedManual: [], view: { tab: 'home', look: null } });
+const blankProfile = () => ({
+  goals: [], goalText: '',
+  height: '', flags: [], chest: '', waist: '', inseam: '', shoe: '',
+  work: '', gym: '', out: '', weekends: [],
+  fit: '', colours: '', never: [],
+  refMode: '', refImage: null, refPalette: null, refSummary: '',
+  lanes: [], budget: 300, monthly: '',
+});
+
 let state = load() || blank();
 let onboarding = false;
 let draft = null;
@@ -21,7 +38,7 @@ function load() {
   } catch { return null; }
 }
 function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* storage unavailable, run in memory */ }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* storage full or blocked, run in memory */ }
 }
 function toast(msg) {
   const t = document.createElement('div');
@@ -33,19 +50,164 @@ function toast(msg) {
 function chip(label, on) {
   return `<button type="button" class="chip${on ? ' on' : ''}" data-val="${esc(label)}">${esc(label)}</button>`;
 }
+function question(title, key, options, multi = false, hint = '') {
+  const on = (o) => (multi ? draft[key].includes(o) : draft[key] === o);
+  return `
+    <div class="qblock">
+      <div class="qtitle">${title}${hint ? ` <span class="small">${hint}</span>` : ''}</div>
+      <div class="chips" data-${multi ? 'multi' : 'single'}="${key}">${options.map((o) => chip(o, on(o))).join('')}</div>
+    </div>`;
+}
+
+// ---------- Colour maths ----------
+
+const hexToRgb = (hex) => {
+  const m = String(hex).match(/^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
+  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null;
+};
+const rgbToHex = (r, g, b) => `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+function tone(hex) {
+  const [r, g, b] = hexToRgb(hex).map((v) => v / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (max !== min) {
+    if (max === r) h = ((g - b) / (max - min)) % 6;
+    else if (max === g) h = (b - r) / (max - min) + 2;
+    else h = (r - g) / (max - min) + 4;
+    h = (h * 60 + 360) % 360;
+  }
+  if (s < 0.15 || l < 0.2 || l > 0.9) return 'neutral';
+  if (h >= 15 && h <= 75) return 'earth';
+  return 'colour';
+}
+
+const fitOf = (it) => (/relaxed|boxy|wide/i.test(it.fit) ? 'Relaxed' : /slim|fitted|athletic|tapered|muscle/i.test(`${it.fit} ${it.name}`) ? 'Slim' : 'Regular');
+const paletteDist = (hex, palette) => {
+  const main = palette.filter((p) => p.share >= 0.08);
+  return Math.min(...(main.length ? main : palette).map((p) => dist(hexToRgb(hex), hexToRgb(p.hex))));
+};
+
+function closestLook(palette) {
+  let best = null;
+  LOOK_ORDER.filter((l) => l !== 'Gym').forEach((l) => {
+    const d = SLOTS.reduce((sum, s) => sum + paletteDist(ITEMS[LOOKS[l].options[s][0]].hex, palette), 0);
+    if (!best || d < best.d) best = { l, d };
+  });
+  return best.l;
+}
+
+// Reads the main colours out of a reference photo. The real build hands the photo to the AI for cut and style too.
+async function analyseImage(file) {
+  const url = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+  const img = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = rej;
+    i.src = url;
+  });
+
+  const scale = Math.min(1, 320 / Math.max(img.width, img.height));
+  const thumbCanvas = document.createElement('canvas');
+  thumbCanvas.width = Math.round(img.width * scale);
+  thumbCanvas.height = Math.round(img.height * scale);
+  thumbCanvas.getContext('2d').drawImage(img, 0, 0, thumbCanvas.width, thumbCanvas.height);
+  const thumb = thumbCanvas.toDataURL('image/jpeg', 0.75);
+
+  const c = document.createElement('canvas');
+  c.width = 48; c.height = 48;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0, 48, 48);
+  const data = ctx.getImageData(0, 0, 48, 48).data;
+  const buckets = {};
+  for (let i = 0; i < data.length; i += 4) {
+    const key = `${data[i] >> 5},${data[i + 1] >> 5},${data[i + 2] >> 5}`;
+    const b = (buckets[key] ||= { n: 0, r: 0, g: 0, b: 0 });
+    b.n++; b.r += data[i]; b.g += data[i + 1]; b.b += data[i + 2];
+  }
+  const total = data.length / 4;
+  const palette = [];
+  Object.values(buckets).sort((a, b) => b.n - a.n).forEach((b) => {
+    const rgb = [b.r / b.n, b.g / b.n, b.b / b.n];
+    const near = palette.find((p) => dist(p.rgb, rgb) < 45);
+    if (near) { near.share += b.n / total; return; }
+    if (palette.length < 5) palette.push({ rgb, share: b.n / total });
+  });
+  const pal = palette.sort((a, b) => b.share - a.share).map((p) => ({ hex: rgbToHex(...p.rgb), share: +p.share.toFixed(2) }));
+
+  const tones = { neutral: 0, earth: 0, colour: 0 };
+  pal.forEach((p) => { tones[tone(p.hex)] += p.share; });
+  const light = pal.reduce((s, p) => s + (hexToRgb(p.hex).reduce((a, v) => a + v, 0) / 765) * p.share, 0) / pal.reduce((s, p) => s + p.share, 0);
+  const lead = tones.neutral >= tones.earth && tones.neutral >= tones.colour ? 'mostly neutral' : tones.earth >= tones.colour ? 'warm, earthy' : 'colourful';
+  const summary = `${light < 0.35 ? 'Dark, ' : light > 0.65 ? 'Light, ' : ''}${lead} tones`;
+  return { thumb, palette: pal, summary: summary.charAt(0).toUpperCase() + summary.slice(1) };
+}
+
+async function handleRefFile(file, target) {
+  if (!file || !file.type.startsWith('image/')) { toast('That doesn’t look like an image'); return; }
+  try {
+    const r = await analyseImage(file);
+    Object.assign(target, { refMode: 'image', refImage: r.thumb, refPalette: r.palette, refSummary: r.summary });
+    if (target === state.profile) save();
+    onboarding ? renderStep() : render();
+  } catch {
+    toast('Couldn’t read that image, try another');
+  }
+}
+
+function recommendLooks(d) {
+  const rec = new Set(['Casual']);
+  if (/Office/.test(d.work) || d.goals.includes('Dress better for work')) rec.add('Smart Casual');
+  if (d.gym && d.gym !== 'Rarely') rec.add('Gym');
+  if (d.out && d.out !== 'Rarely') rec.add('Night Out');
+  if (d.refPalette) rec.add(closestLook(d.refPalette));
+  return LOOK_ORDER.filter((l) => rec.has(l));
+}
+
+function refBlock(p, compact = false) {
+  if (p.refMode !== 'image') return '';
+  return `
+    <div class="ref-result${compact ? ' compact' : ''}">
+      <img src="${p.refImage}" alt="Your reference photo">
+      <div class="ref-read">
+        <div class="small">What we read</div>
+        <div class="name">${esc(p.refSummary)}</div>
+        <div class="palette">${p.refPalette.map((c) => `<span style="background:${esc(c.hex)};flex:${Math.max(c.share, 0.08)}"></span>`).join('')}</div>
+        <div class="small">Closest look: <b>${esc(closestLook(p.refPalette))}</b></div>
+        <button type="button" class="link" data-ref-remove>Remove photo</button>
+      </div>
+    </div>`;
+}
 
 // ---------- Onboarding ----------
 
 const STEPS = [
   {
-    title: 'Let’s start with your build.',
+    title: 'What do you want out of this?',
+    sub: 'Pick everything that fits.',
+    render: () => `
+      <div class="chips" data-multi="goals">${GOALS.map((g) => chip(g, draft.goals.includes(g))).join('')}</div>
+      <label class="field">Anything else? (optional)
+        <textarea id="goalText" rows="3" placeholder="e.g. I’ve got loads of clothes but nothing goes together">${esc(draft.goalText)}</textarea>
+      </label>`,
+    valid: () => draft.goals.length || draft.goalText.trim(),
+  },
+  {
+    title: 'Your build.',
     sub: 'This decides proportions, not just sizes.',
     render: () => `
       <label class="field">Height
         <input type="text" id="height" placeholder="e.g. 5'9 or 175cm" value="${esc(draft.height)}">
       </label>
-      <div class="label">Pick any that sound like you</div>
-      <div class="chips" data-multi="flags">${BUILDS.map((b) => chip(b, draft.flags.includes(b))).join('')}</div>`,
+      ${question('Pick any that sound like you', 'flags', BUILDS, true)}`,
     valid: () => draft.height.trim() && draft.flags.length,
   },
   {
@@ -59,11 +221,62 @@ const STEPS = [
       <div class="row">
         <label class="field">Inside leg<input type="text" id="inseam" placeholder="e.g. 30in" value="${esc(draft.inseam)}"></label>
         <label class="field">Shoe<input type="text" id="shoe" placeholder="e.g. UK 9" value="${esc(draft.shoe)}"></label>
-      </div>
-      <label class="field">Photo (optional)
-        <input type="text" disabled placeholder="Photo upload comes with the real build">
-      </label>`,
+      </div>`,
     valid: () => true,
+  },
+  {
+    title: 'What does a normal week look like?',
+    sub: 'So every look has somewhere to be worn.',
+    render: () => `
+      ${question('Work', 'work', WORK)}
+      ${question('Gym', 'gym', GYM)}
+      ${question('Going out', 'out', OUT)}
+      ${question('Weekends', 'weekends', WEEKENDS, true, 'pick any')}`,
+    valid: () => draft.work && draft.gym && draft.out,
+  },
+  {
+    title: 'How do you like to wear things?',
+    sub: 'This is where it gets specific to you.',
+    render: () => `
+      ${question('Fit', 'fit', FITS)}
+      ${question('Colours', 'colours', COLOURS)}
+      ${question('Things you’d never wear', 'never', NEVER, true, 'optional')}`,
+    valid: () => draft.fit && draft.colours,
+  },
+  {
+    title: 'Got a look you’re going for?',
+    sub: 'Upload a photo of an outfit you like, and your wardrobe gets built towards it.',
+    render: () => `
+      <div class="ref-options">
+        ${draft.refMode === 'image' ? refBlock(draft) : `
+          <label class="ref-card upload">
+            <input type="file" id="refFile" accept="image/*" hidden>
+            <span class="serif">Upload a reference photo</span>
+            <span class="small">An outfit you like, someone whose style you rate, a Pinterest screenshot.</span>
+          </label>`}
+        <button type="button" class="ref-card${draft.refMode === 'recommend' ? ' on' : ''}" data-ref="recommend">
+          <span class="ref-top"><span class="serif">Let the stylist decide</span><span class="rec-tag">Recommended</span></span>
+          <span class="small">Built from your answers. You can add a photo later from the You tab.</span>
+        </button>
+      </div>`,
+    valid: () => draft.refMode,
+  },
+  {
+    title: 'Which looks do you want?',
+    sub: 'We’ve picked the ones that fit your week. Change anything.',
+    enter: () => { if (!draft.lanes.length) draft.lanes = recommendLooks(draft); },
+    render: () => {
+      const rec = recommendLooks(draft);
+      return `
+        <div class="look-pick" data-multi="lanes">${LOOK_ORDER.map((l) => `
+          <button type="button" class="look-opt${draft.lanes.includes(l) ? ' on' : ''}" data-val="${esc(l)}" style="--tint:${LOOKS[l].tint}">
+            <span class="look-opt-top"><span class="serif">${esc(l)}</span>${rec.includes(l) ? '<span class="rec-tag">Recommended</span>' : ''}</span>
+            <span class="small">${esc(LOOKS[l].tagline)}</span>
+            <span class="tick"></span>
+          </button>`).join('')}
+        </div>`;
+    },
+    valid: () => draft.lanes.length,
   },
   {
     title: 'What’s your wardrobe budget?',
@@ -80,36 +293,11 @@ const STEPS = [
       <div class="chips" data-single="monthly">${Object.keys(MONTHLY).map((m) => chip(m, draft.monthly === m)).join('')}</div>`,
     valid: () => draft.monthly,
   },
-  {
-    title: 'Which looks do you want?',
-    sub: 'Pick as many as you like. Where a piece works in more than one look, you only buy it once.',
-    render: () => `
-      <div class="look-pick" data-multi="lanes">${LOOK_ORDER.map((l) => `
-        <button type="button" class="look-opt${draft.lanes.includes(l) ? ' on' : ''}" data-val="${esc(l)}" style="--tint:${LOOKS[l].tint}">
-          <span class="serif">${esc(l)}</span>
-          <span class="small">${esc(LOOKS[l].tagline)}</span>
-          <span class="tick"></span>
-        </button>`).join('')}
-      </div>`,
-    valid: () => draft.lanes.length,
-  },
-  {
-    title: 'What are you actually trying to change?',
-    sub: 'Be honest. This shapes every choice.',
-    render: () => `
-      <div class="chips" data-multi="goalTags">${GOALS.map((g) => chip(g, draft.goalTags.includes(g))).join('')}</div>
-      <label class="field">In your own words (optional)
-        <textarea id="goal" rows="3" placeholder="e.g. I scroll and everyone looks sorted, I just feel average">${esc(draft.goal)}</textarea>
-      </label>`,
-    valid: () => draft.goalTags.length || draft.goal.trim(),
-  },
 ];
 
 function startOnboarding() {
   onboarding = true;
-  draft = state.profile
-    ? structuredClone(state.profile)
-    : { height: '', flags: [], chest: '', waist: '', inseam: '', shoe: '', budget: 300, monthly: '', lanes: [], goalTags: [], goal: '' };
+  draft = state.profile ? structuredClone(state.profile) : blankProfile();
   step = 0;
   tabs.classList.add('hidden');
   renderStep();
@@ -117,6 +305,7 @@ function startOnboarding() {
 
 function renderStep() {
   const s = STEPS[step];
+  s.enter?.();
   screen.innerHTML = `
     <div class="onb">
       <div class="progress">${STEPS.map((_, i) => `<span class="${i <= step ? 'on' : ''}"></span>`).join('')}</div>
@@ -130,11 +319,13 @@ function renderStep() {
       </div>
     </div>`;
 
-  screen.querySelectorAll('input[type=text]:not([disabled]), textarea').forEach((el) => {
+  screen.querySelectorAll('input[type=text], textarea').forEach((el) => {
     el.addEventListener('input', () => { draft[el.id] = el.value; refreshNext(); });
   });
   const range = screen.querySelector('#budget');
   if (range) range.addEventListener('input', () => { draft.budget = +range.value; screen.querySelector('#budgetVal').textContent = money(draft.budget); });
+  const file = screen.querySelector('#refFile');
+  if (file) file.addEventListener('change', () => handleRefFile(file.files[0], draft));
 
   screen.querySelectorAll('[data-multi], [data-single]').forEach((group) => {
     group.addEventListener('click', (e) => {
@@ -153,6 +344,11 @@ function renderStep() {
       refreshNext();
     });
   });
+
+  const rec = screen.querySelector('[data-ref="recommend"]');
+  if (rec) rec.onclick = () => { Object.assign(draft, { refMode: 'recommend', refImage: null, refPalette: null, refSummary: '' }); renderStep(); };
+  const remove = screen.querySelector('[data-ref-remove]');
+  if (remove) remove.onclick = () => { Object.assign(draft, { refMode: '', refImage: null, refPalette: null, refSummary: '' }); renderStep(); };
 
   const back = screen.querySelector('#back');
   if (back) back.onclick = () => { step--; renderStep(); };
@@ -175,12 +371,53 @@ function finishOnboarding() {
   screen.innerHTML = `
     <div class="loader">
       <div><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-      <p class="sub" style="margin-top:20px">Building your wardrobe around your build and budget…</p>
+      <p class="sub" style="margin-top:20px">Building your wardrobe around your week, your build and your budget…</p>
     </div>`;
   setTimeout(render, 1400);
 }
 
 // ---------- Wardrobe engine (stand-in for the AI) ----------
+
+function isExcluded(it) {
+  const n = state.profile.never;
+  return (n.includes('Shorts') && /shorts/i.test(it.name))
+    || (n.includes('Hoodies') && /hoodie/i.test(it.name))
+    || (n.includes('Boots') && /boot/i.test(it.name))
+    || (n.includes('Blazers') && /blazer/i.test(it.name))
+    || (n.includes('Tight fits') && /fitted|athletic|muscle/i.test(`${it.fit} ${it.name}`))
+    || (n.includes('Secondhand') && /vinted/i.test(it.shop));
+}
+
+// How well a piece suits him: the look's own order first, then his fit, colour, photo and hard noes.
+function score(id, rank) {
+  const p = state.profile;
+  const it = ITEMS[id];
+  if (isExcluded(it)) return -100 - rank;
+  let s = 3 - rank;
+  if (p.fit !== 'Regular' && fitOf(it) === p.fit) s += 1.5;
+  const t = tone(it.hex);
+  if (p.colours === 'Mostly neutrals' && t === 'colour') s -= 1.5;
+  if (p.colours === 'Earth tones' && t === 'earth') s += 1.5;
+  if (p.colours === 'Happy with some colour' && t === 'colour') s += 1;
+  if (p.refPalette) s += Math.max(0, 2.5 - paletteDist(it.hex, p.refPalette) / 40);
+  return s;
+}
+
+function bestFor(lane, slot) {
+  const opts = LOOKS[lane].options[slot];
+  return opts.map((id, i) => ({ id, s: score(id, i) })).sort((a, b) => b.s - a.s)[0].id;
+}
+
+function reasonsFor(id) {
+  const p = state.profile;
+  const it = ITEMS[id];
+  const out = [];
+  if (p.refPalette && paletteDist(it.hex, p.refPalette) < 35) out.push('matches your reference photo');
+  if (p.fit !== 'Regular' && fitOf(it) === p.fit) out.push(`${p.fit.toLowerCase()} cut, the way you like it`);
+  if (p.colours === 'Earth tones' && tone(it.hex) === 'earth') out.push('an earth tone, like you asked');
+  if (p.colours === 'Happy with some colour' && tone(it.hex) === 'colour') out.push('a bit of colour, like you asked');
+  return out.slice(0, 2);
+}
 
 // Keep each look on its signature pieces unless sharing finishes more complete looks within budget.
 function plan() {
@@ -197,24 +434,22 @@ function evaluate(share) {
   const usage = {};
   const cost = (ids) => ids.reduce((sum, id) => sum + ITEMS[id].price, 0);
 
-  // Each look starts on its signature pieces (or anything he owns).
   const choice = [];
   p.lanes.forEach((lane) => SLOTS.forEach((slot) => {
     if (state.ownedManual.some((o) => o.slot === slot && o.lanes.includes(lane))) return;
     const opts = LOOKS[lane].options[slot];
     const pick = state.picks[lane]?.[slot];
     const locked = opts.includes(pick);
-    choice.push({ lane, slot, locked, id: locked ? pick : opts.find((o) => owned.has(o)) || opts[0] });
+    choice.push({ lane, slot, locked, id: locked ? pick : opts.find((o) => owned.has(o)) || bestFor(lane, slot) });
   }));
 
-  // Share pieces between looks, biggest saving first, until it fits or nothing more can be shared.
   const total = () => cost([...new Set(choice.map((c) => c.id))].filter((id) => !owned.has(id)));
   for (let guard = 0; share && guard < 30 && total() > p.budget; guard++) {
     let best = null;
     const before = total();
     choice.filter((c) => !c.locked).forEach((c) => {
       LOOKS[c.lane].options[c.slot].forEach((opt) => {
-        if (opt === c.id || !(owned.has(opt) || choice.some((o) => o !== c && o.id === opt))) return;
+        if (opt === c.id || isExcluded(ITEMS[opt]) || !(owned.has(opt) || choice.some((o) => o !== c && o.id === opt))) return;
         const was = c.id;
         c.id = opt;
         const saving = before - total();
@@ -237,7 +472,7 @@ function evaluate(share) {
     });
   });
 
-  // Buy order: finish whole looks first, in the order he picked them, then the most-shared pieces.
+  // Buy order: finish whole looks first, in the order they're listed, then the most-shared pieces.
   const now = new Set();
   let spent = 0;
   p.lanes.forEach((lane) => {
@@ -335,6 +570,7 @@ function renderHome() {
       </div>
       <div class="bar"><span style="width:${pct}%"></span></div>
       <p>${readyLine}${sharedLine}</p>
+      ${p.refMode === 'image' ? `<div class="plan-ref"><img src="${p.refImage}" alt=""><span>Colours leaning towards your reference photo.</span></div>` : ''}
       <button class="btn light" data-go="shop">See what to buy first</button>
     </section>
     <h2 class="section">Your looks</h2>
@@ -389,7 +625,8 @@ function pieceCard(lane, slot, x, pl) {
   const status = x.owned ? ['owned', 'You own this'] : pl.now.has(x.id) ? ['now', 'Buy now'] : ['later', 'Buy later'];
   const also = x.manual ? [] : [...pl.usage[x.id]].filter((l) => l !== lane);
   const notes = state.profile.flags.map((f) => BUILD_NOTES[f]?.[slot]).filter(Boolean);
-  const canSwap = !x.manual && LOOKS[lane].options[slot].length > 1;
+  const mine = x.manual ? [] : reasonsFor(x.id);
+  const canSwap = !x.manual && LOOKS[lane].options[slot].filter((o) => !isExcluded(ITEMS[o])).length > 1;
   return `
     <article class="piece">
       <div class="piece-head">
@@ -405,6 +642,7 @@ function pieceCard(lane, slot, x, pl) {
         </div>
       </div>
       ${it.why ? `<p class="why">${esc(it.why)}</p>` : ''}
+      ${mine.length ? `<p class="why you">Picked for you: ${esc(mine.join(', '))}.</p>` : ''}
       ${notes.map((n) => `<p class="why build">For your build: ${esc(n)}</p>`).join('')}
       ${also.length ? `<p class="also">Also in ${also.map((l) => `<span class="dot" style="background:${LOOKS[l].tint}"></span>${esc(l)}`).join(', ')}</p>` : ''}
       ${x.manual ? '' : `<div class="piece-actions">
@@ -495,23 +733,39 @@ function renderYou() {
     ${p.flags.map((f) => `<h2 class="section">${esc(f)}</h2><ul class="tips">${GUIDE[f].map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`).join('')}
     <h2 class="section">For everyone</h2>
     <ul class="tips">${GENERAL_GUIDE.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+    <h2 class="section">Reference photo</h2>
+    ${p.refMode === 'image' ? refBlock(p, true) : `
+      <label class="ref-card upload">
+        <input type="file" id="refFileYou" accept="image/*" hidden>
+        <span class="serif">Add a reference photo</span>
+        <span class="small">Your looks will lean towards its colours.</span>
+      </label>`}
     <h2 class="section">Your answers</h2>
     <section class="card">
+      ${kv('Goals', [...p.goals, p.goalText].filter(Boolean).join(' · '))}
       ${kv('Height', p.height)}
       ${kv('Build', p.flags.join(', '))}
       ${kv('Sizes', [p.chest && `Chest ${p.chest}`, p.waist && `Waist ${p.waist}`, p.inseam && `Leg ${p.inseam}`, p.shoe && `Shoe ${p.shoe}`].filter(Boolean).join(' · '))}
+      ${kv('Work', p.work)}
+      ${kv('Gym', p.gym)}
+      ${kv('Going out', p.out)}
+      ${kv('Weekends', p.weekends.join(', '))}
+      ${kv('Fit', p.fit)}
+      ${kv('Colours', p.colours)}
+      ${kv('Never', p.never.join(', '))}
       ${kv('Wardrobe budget', money(p.budget))}
       ${kv('Monthly spend', p.monthly)}
-      ${kv('Goal', [...p.goalTags, p.goal].filter(Boolean).join(' · '))}
     </section>
     <div class="actions"><button class="btn" id="redo">Edit my answers</button></div>
     <div class="actions"><button class="btn ghost" id="reset" style="flex:1">Start over from scratch</button></div>`;
+  const file = screen.querySelector('#refFileYou');
+  if (file) file.addEventListener('change', () => handleRefFile(file.files[0], state.profile));
 }
 
 // ---------- Actions ----------
 
 function swap(lane, slot) {
-  const opts = LOOKS[lane].options[slot];
+  const opts = LOOKS[lane].options[slot].filter((o) => !isExcluded(ITEMS[o]));
   const current = plan().looks[lane][slot].id;
   (state.picks[lane] ||= {})[slot] = opts[(opts.indexOf(current) + 1) % opts.length];
   save(); render();
@@ -579,6 +833,10 @@ screen.addEventListener('click', (e) => {
   if (!t) return;
   const d = t.dataset;
   if (t.closest('#addLanes')) { t.classList.toggle('on'); return; }
+  if ('refRemove' in d) {
+    Object.assign(state.profile, { refMode: 'recommend', refImage: null, refPalette: null, refSummary: '' });
+    save(); return render();
+  }
   if (d.go) return go(d.go);
   if (d.look) return go('home', d.look);
   if ('back' in d) return go('home');

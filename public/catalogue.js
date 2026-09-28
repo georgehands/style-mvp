@@ -71,9 +71,9 @@ const LOOKS = {
     tagline: 'Relaxed fits, clean trainers, no big logos.',
     options: { Top: ['t_tee_black', 't_hoodie'], Bottom: ['b_cargo', 'b_jeans_black'], Shoes: ['s_white', 's_skate'], Layer: ['l_bomber', 'l_overshirt'], Accessory: ['a_beanie', 'a_cap', 'a_watch_steel'] },
   },
-  'Date Night': {
+  'Night Out': {
     tint: '#5E2230',
-    tagline: 'First dates and nights out.',
+    tagline: 'Dinners, drinks, nights out.',
     options: { Top: ['t_shirt_black', 't_polo_navy'], Bottom: ['b_jeans_black', 'b_jeans_dark', 'b_trousers'], Shoes: ['s_chelsea', 's_loafers', 's_white'], Layer: ['l_bomber', 'l_blazer', 'l_merino'], Accessory: ['a_scent', 'a_watch_leather'] },
   },
   Gym: {
