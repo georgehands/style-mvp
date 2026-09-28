@@ -49,7 +49,7 @@ const FAMILIES = {
   cap: { slot: 'Accessory', name: 'Plain cap', fit: 'Curved peak', price: 15, shop: 'Nike', looks: ['Gym', 'Streetwear', 'Casual'], why: 'Keeps it simple on a bad hair day.', colours: [['Black', '#1A1A1A'], ['Navy', '#1F2A44'], ['Stone', '#C8BBA0']] },
   beanie: { slot: 'Accessory', name: 'Beanie', fit: 'Short, above the ear', price: 12, shop: 'ASOS', looks: ['Streetwear', 'Casual'], why: 'Frames the face and finishes the look.', colours: [['Charcoal', '#3A3A3A'], ['Black', '#1C1C1C'], ['Olive', '#4E5238']] },
   holdall: { slot: 'Accessory', name: 'Holdall', fit: 'Medium', price: 25, shop: 'Decathlon', looks: ['Gym'], why: 'One tidy bag beats a rucksack stuffed with kit.', colours: [['Black', '#222222']] },
-  scent: { slot: 'Accessory', name: 'Fragrance', fit: '30ml', price: 30, shop: 'Zara', looks: ['Night Out', 'Smart Casual'], why: 'People notice it before they notice the outfit. Two sprays, not five.', colours: [['Fresh, woody', '#C9B79C']] },
+  scent: { slot: 'Accessory', name: 'Fragrance', fit: '30ml', price: 30, shop: 'Zara', looks: ['Night Out', 'Smart Casual'], why: 'People notice it before they notice the outfit. Two sprays, not five.', colours: [['Fresh, woody', '#C9B79C'], ['Warm, spicy', '#B9844F'], ['Clean, citrus', '#E6D79A']] },
   sunglasses: { slot: 'Accessory', name: 'Sunglasses', fit: 'Medium frame', price: 15, shop: 'ASOS', looks: ['Casual', 'Old Money', 'Streetwear'], why: 'The easiest way to look finished in summer.', colours: [['Tortoise', '#6B4A2F'], ['Black', '#1A1A1A']] },
 };
 

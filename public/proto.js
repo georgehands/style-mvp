@@ -15,6 +15,8 @@ const SLOT_FILTERS = ['All', 'Liked', 'Top', 'Bottom', 'Shoes', 'Layer', 'Access
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = (n) => `£${Math.round(n).toLocaleString('en-GB')}`;
+const budgetLabel = (b) => (b > 1000 ? '£1,000+' : money(b));
+const budgetCap = (b) => (b > 1000 ? Infinity : b);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const listJoin = (a) => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
 const thumb = (it, cls = '') => (it.family ? `<span class="thumb ${cls}">${productSVG(it)}</span>` : `<span class="swatch ${cls}" style="background:${esc(it.hex)}"></span>`);
@@ -22,7 +24,7 @@ const heart = (on) => `<svg viewBox="0 0 24 24" class="heart${on ? ' on' : ''}" 
 
 const blank = () => ({
   profile: null, picks: {}, ownedIds: [], ownedManual: [],
-  likes: { items: [], outfits: [] }, signals: { away: {}, n: 0 },
+  likes: { items: [], outfits: [] }, signals: { away: {}, n: 0 }, notes: [],
   view: { tab: 'home', look: null },
 });
 const blankProfile = () => ({
@@ -49,7 +51,7 @@ let tasteCache = null;
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (s && s.view) return s;
+    if (s && s.view) return { ...blank(), ...s };
     const old = JSON.parse(localStorage.getItem('style-proto-v3'));
     if (old && old.profile) return { ...blank(), profile: old.profile };
   } catch { /* fall through to a fresh start */ }
@@ -303,8 +305,8 @@ const STEPS = [
     render: () => `
       <div class="budget-card">
         <div class="small">Whole wardrobe</div>
-        <div class="budget-val" id="budgetVal">${money(draft.budget)}</div>
-        <input type="range" id="budget" min="100" max="1000" step="25" value="${draft.budget}">
+        <div class="budget-val" id="budgetVal">${budgetLabel(draft.budget)}</div>
+        <input type="range" id="budget" min="100" max="1025" step="25" value="${draft.budget}">
         <div class="range-ends"><span>£100</span><span>£1,000</span></div>
       </div>
       <h2 class="q">And what do you usually spend on clothes a month?</h2>
@@ -343,7 +345,7 @@ function renderStep() {
     el.addEventListener('input', () => { draft[el.id] = el.value; refreshNext(); });
   });
   const range = screen.querySelector('#budget');
-  if (range) range.addEventListener('input', () => { draft.budget = +range.value; screen.querySelector('#budgetVal').textContent = money(draft.budget); });
+  if (range) range.addEventListener('input', () => { draft.budget = +range.value; screen.querySelector('#budgetVal').textContent = budgetLabel(draft.budget); });
   const file = screen.querySelector('#refFile');
   if (file) file.addEventListener('change', () => handleRefFile(file.files[0], draft));
 
@@ -503,6 +505,7 @@ function score(id, look) {
     if (!isLiked(id) && taste.families[it.family]) s += 1;
   }
   s -= 1.2 * Math.min(3, state.signals.away[id] || 0);
+  s += noteBonus(it);
   return s;
 }
 
@@ -515,6 +518,8 @@ function reasonsFor(id) {
   const it = ITEMS[id];
   const taste = getTaste();
   const out = [];
+  const asked = askedFor(it);
+  if (asked) out.push(`you asked for “${asked}”`);
   if (isLiked(id)) out.push('you liked this');
   else if (taste.families[it.family]) out.push('similar to something you liked');
   else if ((taste.shops[it.shop] || 0) >= 1 && it.shop !== 'Vinted (used)') out.push(`you like ${it.shop}`);
@@ -550,7 +555,7 @@ function evaluate(share) {
   }));
 
   const total = () => cost([...new Set(choice.map((c) => c.id))].filter((id) => !owned.has(id)));
-  for (let guard = 0; share && guard < 30 && total() > p.budget; guard++) {
+  for (let guard = 0; share && guard < 30 && total() > budgetCap(p.budget); guard++) {
     let best = null;
     const before = total();
     choice.filter((c) => !c.locked).forEach((c) => {
@@ -583,14 +588,14 @@ function evaluate(share) {
   let spent = 0;
   p.lanes.forEach((lane) => {
     const need = [...new Set(SLOTS.map((s) => looks[lane][s]).filter((x) => !x.owned && !now.has(x.id)).map((x) => x.id))];
-    if (spent + cost(need) <= p.budget) { need.forEach((id) => now.add(id)); spent += cost(need); }
+    if (spent + cost(need) <= budgetCap(p.budget)) { need.forEach((id) => now.add(id)); spent += cost(need); }
   });
   const later = [];
   Object.keys(usage)
     .filter((id) => !owned.has(id) && !now.has(id))
     .sort((a, b) => usage[b].size - usage[a].size || ITEMS[a].price - ITEMS[b].price)
     .forEach((id) => {
-      if (spent + ITEMS[id].price <= p.budget) { now.add(id); spent += ITEMS[id].price; } else later.push(id);
+      if (spent + ITEMS[id].price <= budgetCap(p.budget)) { now.add(id); spent += ITEMS[id].price; } else later.push(id);
     });
 
   const remaining = (lane) => cost([...new Set(SLOTS.map((s) => looks[lane][s]).filter((x) => !x.owned && !now.has(x.id)).map((x) => x.id))]);
@@ -656,7 +661,7 @@ function renderHome() {
   const p = state.profile;
   const pl = plan();
   const unused = LOOK_ORDER.filter((l) => !p.lanes.includes(l));
-  const pct = Math.min(100, (pl.spent / p.budget) * 100);
+  const pct = Math.min(100, (pl.spent / Math.min(budgetCap(p.budget), Math.max(pl.spent, 1))) * 100);
   const likes = state.likes.items.length + state.likes.outfits.length;
   const readyLine = pl.ready.length
     ? `Your buy-now list finishes <b>${pl.ready.length} of ${p.lanes.length}</b> looks.`
@@ -670,7 +675,7 @@ function renderHome() {
     </header>
     <section class="plan">
       <div class="plan-row">
-        <div><div class="k">Budget</div><div class="v">${money(p.budget)}</div></div>
+        <div><div class="k">Budget</div><div class="v">${budgetLabel(p.budget)}</div></div>
         <div><div class="k">Buy now</div><div class="v">${money(pl.spent)}</div></div>
       </div>
       <div class="bar"><span style="width:${pct}%"></span></div>
@@ -718,11 +723,11 @@ function renderLook(lane) {
       </div>
     </section>
     ${SLOTS.map((s) => pieceCard(lane, s, pieces[s], pl)).join('')}
-    <div class="ask">
-      <input type="text" disabled placeholder="Ask the stylist: no boots, something darker…">
-      <button class="btn" disabled>Send</button>
-    </div>
-    <p class="note">Free-text changes arrive once the real AI is connected. Prices are samples.</p>
+    <form class="ask" data-ask-look="${esc(lane)}">
+      <input type="text" id="askLook" autocomplete="off" placeholder="Ask the stylist: black shoes, woody scent, cheaper jeans…">
+      <button class="btn" type="submit">Ask</button>
+    </form>
+    <p class="note">For now it understands colours, brands, fits and types of clothing. The full AI will understand anything. Prices are samples.</p>
     ${state.profile.lanes.length > 1 ? `<button class="btn ghost drop" data-drop="${esc(lane)}">Remove this look</button>` : ''}`;
 }
 
@@ -918,7 +923,7 @@ function renderShop() {
     <header class="top">
       <div class="overline">Shopping list</div>
       <h1 class="serif">What to buy, in order.</h1>
-      <p class="sub">Everything under “Buy now” fits your ${money(p.budget)}. Whole looks come first, then the pieces that work hardest.</p>
+      <p class="sub">Everything under “Buy now” fits your ${budgetLabel(p.budget)} budget. Whole looks come first, then the pieces that work hardest.</p>
     </header>
     <section class="card">
       <div class="list-head"><span>Buy now</span><span class="v">${money(pl.spent)}</span></div>
@@ -998,6 +1003,12 @@ function renderYou() {
         <span class="serif">Add a reference photo</span>
         <span class="small">Your looks will lean towards its colours.</span>
       </label>`}
+    <h2 class="section">What you’ve asked for</h2>
+    ${(state.notes || []).length ? `<section class="card">${state.notes.map((n, i) => `
+      <div class="row-item">
+        <div class="meta"><div class="name">“${esc(n.text)}”</div><div class="small">${esc(n.slot)} · every look</div></div>
+        <button class="link" data-note-remove="${i}">Remove</button>
+      </div>`).join('')}</section>` : '<p class="note">Nothing yet. Type a request on any look, like “black shoes”, and it keeps steering your picks.</p>'}
     <h2 class="section">Your answers</h2>
     <section class="card">
       ${kv('Goals', [...p.goals, p.goalText].filter(Boolean).join(' · '))}
@@ -1011,7 +1022,7 @@ function renderYou() {
       ${kv('Fit', p.fit)}
       ${kv('Colours', p.colours)}
       ${kv('Never', p.never.join(', '))}
-      ${kv('Wardrobe budget', money(p.budget))}
+      ${kv('Wardrobe budget', budgetLabel(p.budget))}
       ${kv('Monthly spend', p.monthly)}
     </section>
     <div class="actions"><button class="btn" id="redo">Edit my answers</button></div>
@@ -1045,6 +1056,10 @@ function renderSheet() {
   if (!sheetEl) return;
   const body = sheetCtx.type === 'change' ? changeSheet(sheetCtx) : sheetCtx.type === 'built' ? builtSheet(sheetCtx.outfit) : itemSheet(sheetCtx.id);
   sheetEl.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div><button class="sheet-close" data-close aria-label="Close">×</button>${body}</div>`;
+  sheetEl.querySelector('[data-ask-sheet]')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    askStylist(e.target.querySelector('input').value, sheetCtx.look, sheetCtx.slot);
+  });
 }
 
 function itemHeader(it, withLike = true) {
@@ -1083,6 +1098,11 @@ function changeSheet(ctx) {
   return `
     <div class="overline">${slot} · ${esc(ctx.draft ? state.view.outfit.base : look)}</div>
     ${itemHeader(it)}
+    <form class="ask" data-ask-sheet>
+      <input type="text" id="askSheet" autocomplete="off" placeholder="Describe it: black, woody, relaxed, Zara…">
+      <button class="btn" type="submit">Ask</button>
+    </form>
+    ${notesFor(slot).length ? `<div class="note-chips">${notesFor(slot).map((n) => `<button class="note-chip" data-note-remove="${state.notes.indexOf(n)}">“${esc(n.text)}” <span aria-hidden="true">×</span></button>`).join('')}</div>` : ''}
     <div class="quick">
       <button data-quick="cheaper">Cheaper</button>
       <button data-quick="colour"${colours.length < 2 ? ' disabled' : ''}>Different colour</button>
@@ -1162,6 +1182,163 @@ function onSheetClick(e) {
   if (d.addto) return addToLook(sheetCtx.id, d.addto);
   if ('likeBuilt' in d) return toggleOutfitLike(sheetCtx.outfit);
   if ('apply' in d) return applyOutfit(sheetCtx.outfit);
+  if (d.noteRemove) return removeNote(+d.noteRemove);
+}
+
+// ---------- Stylist requests: typed changes like "black shoes" or "woody scent" ----------
+// Keyword matching over colours, brands, fits and garment types. The real build hands the text to the AI.
+
+const STOP = new Set('a an the some something i im id want would like prefer please make it its with for me my in and or to of get give maybe bit little much very really one pair more go try'.split(' '));
+const NEGATE = new Set(['no', 'not', 'without', 'never', 'less', 'avoid', 'hate', 'dont', 'nothing']);
+const GENERIC = new Set(['top', 'bottoms', 'layer', 'accessory', 'shoes', 'outfit', 'look', 'piece', 'clothes', 'colour', 'color']);
+const SYNONYM = {
+  sneakers: 'trainers', sneaker: 'trainers', trainer: 'trainers', boot: 'boots', tshirt: 'tee', 't-shirt': 'tee', tees: 'tee',
+  sweater: 'jumper', sweaters: 'jumper', knit: 'jumper', knitwear: 'jumper', jumpers: 'jumper',
+  perfume: 'fragrance', cologne: 'fragrance', scent: 'fragrance', aftershave: 'fragrance', smell: 'fragrance',
+  pants: 'trousers', trouser: 'trousers', slacks: 'trousers', gray: 'grey', hat: 'cap', glasses: 'sunglasses', shades: 'sunglasses',
+  coat: 'jacket', jackets: 'jacket', shoe: 'shoes', footwear: 'shoes', jean: 'jeans', short: 'shorts', hoody: 'hoodie', hoodies: 'hoodie',
+  woodsy: 'woody', khaki: 'beige', levis: "levi's", hm: 'h&m', ms: 'm&s', vintage: 'secondhand', used: 'secondhand', thrifted: 'secondhand',
+};
+const MODS = {
+  cheaper: 'cheaper', cheap: 'cheaper', budget: 'cheaper', affordable: 'cheaper',
+  premium: 'premium', nicer: 'premium', better: 'premium', expensive: 'premium', quality: 'premium', luxury: 'premium',
+  darker: 'darker', lighter: 'lighter', brighter: 'lighter',
+  slim: 'fit:Slim', fitted: 'fit:Slim', skinny: 'fit:Slim', tight: 'fit:Slim',
+  relaxed: 'fit:Relaxed', baggy: 'fit:Relaxed', loose: 'fit:Relaxed', oversized: 'fit:Relaxed', wide: 'fit:Relaxed',
+};
+const FLIP = { cheaper: 'premium', premium: 'cheaper', darker: 'lighter', lighter: 'darker', 'fit:Slim': 'fit:Relaxed', 'fit:Relaxed': 'fit:Slim' };
+const SLOT_WORDS = {
+  Shoes: ['shoes', 'trainers', 'boots', 'loafers', 'chelsea', 'desert', 'runners', 'running', 'skate', 'canvas'],
+  Bottom: ['trousers', 'jeans', 'chinos', 'shorts', 'joggers', 'cargo', 'cargos', 'bottoms'],
+  Layer: ['jacket', 'jumper', 'blazer', 'bomber', 'overshirt', 'layer', 'cardigan', 'quarter-zip'],
+  Accessory: ['watch', 'belt', 'cap', 'beanie', 'bag', 'holdall', 'fragrance', 'sunglasses', 'accessory'],
+  Top: ['top', 'tee', 'shirt', 'polo', 'hoodie', 'vest', 'tank', 'oxford', 'linen'],
+};
+const TYPE_TAGS = {
+  tee_heavy: 'tee', tee_budget: 'tee', tee_boxy: 'tee boxy', tee_train: 'tee training gym', oxford: 'shirt oxford', linen: 'shirt linen', shirt_slim: 'shirt',
+  polo_knit: 'polo knitted', hoodie: 'hoodie', tank: 'vest tank', jeans: 'jeans denim', jeans_budget: 'jeans denim', chinos: 'chinos trousers',
+  tailored: 'trousers tailored smart', pleated: 'trousers pleated smart', cargo: 'cargo cargos trousers', shorts_train: 'shorts training', shorts_chino: 'shorts chino',
+  joggers: 'joggers trousers', trainers: 'trainers shoes', trainers_premium: 'trainers shoes premium', loafers: 'loafers shoes', chelsea: 'boots chelsea shoes',
+  desert: 'boots desert shoes suede', skate: 'shoes trainers skate canvas', canvas: 'shoes trainers canvas', runners: 'shoes trainers running runners',
+  overshirt: 'overshirt jacket', denim_jacket: 'jacket denim', merino: 'jumper merino', cable: 'jumper cable', knit_qzip: 'jumper zip quarter-zip',
+  qzip: 'zip quarter-zip training', blazer: 'blazer jacket', bomber: 'bomber jacket', zip_hoodie: 'hoodie zip', watch_steel: 'watch steel metal',
+  watch_leather: 'watch leather', belt: 'belt leather', cap: 'cap', beanie: 'beanie', holdall: 'bag holdall', scent: 'fragrance', sunglasses: 'sunglasses',
+};
+const COLOUR_TAGS = {
+  navy: 'blue', 'dark indigo': 'blue', 'light blue': 'blue', 'mid blue': 'blue', 'light wash': 'blue', olive: 'green', sage: 'green',
+  tan: 'brown', camel: 'brown', 'washed brown': 'brown', 'brown suede': 'brown', stone: 'beige', sand: 'beige', cream: 'beige', 'off-white': 'white',
+  charcoal: 'grey', 'grey marl': 'grey', silver: 'grey', tortoise: 'brown', 'pale pink': 'pink',
+};
+
+const wordCache = new Map();
+let vocab = null;
+
+function itemWords(it) {
+  if (wordCache.has(it.id)) return wordCache.get(it.id);
+  const lum = artLum(it.hex);
+  const txt = [it.name, it.colour, it.fit, it.shop, TYPE_TAGS[it.family] || '', COLOUR_TAGS[it.colour.toLowerCase()] || '',
+    lum < 0.3 ? 'dark' : lum > 0.72 ? 'light' : '', /vinted/i.test(it.shop) ? 'secondhand vinted' : ''].join(' ').toLowerCase();
+  const words = new Set(txt.replace(/[’']/g, '').replace(/[^a-z&\- ]/g, ' ').split(/\s+/).filter(Boolean));
+  wordCache.set(it.id, words);
+  return words;
+}
+
+function parseRequest(text) {
+  vocab ||= new Set([...Object.values(ITEMS).flatMap((it) => [...itemWords(it)]), ...Object.values(SLOT_WORDS).flat()]);
+  const req = { want: [], avoid: [], mods: new Set() };
+  let neg = false;
+  text.toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9&\- ]/g, ' ').split(/\s+/).filter(Boolean).forEach((w0) => {
+    if (NEGATE.has(w0)) { neg = true; return; }
+    if (STOP.has(w0)) return;
+    let w = (SYNONYM[w0] || w0).replace(/[’']/g, '');
+    if (!vocab.has(w) && w.endsWith('s') && vocab.has(w.slice(0, -1))) w = w.slice(0, -1);
+    else if (!vocab.has(w) && vocab.has(`${w}s`)) w = `${w}s`;
+    const mod = MODS[w];
+    if (mod) req.mods.add(neg ? FLIP[mod] : mod);
+    else if (vocab.has(w)) (neg ? req.avoid : req.want).push(w);
+    neg = false;
+  });
+  return req;
+}
+
+function detectSlot(req) {
+  const named = Object.keys(SLOT_WORDS).find((slot) => req.want.some((w) => SLOT_WORDS[slot].includes(w)));
+  if (named) return named;
+  // A word that only ever appears in one slot ("woody" is only a fragrance) points at that slot.
+  const hit = SLOTS.filter((slot) => Object.values(ITEMS).some((it) => it.slot === slot && req.want.some((w) => itemWords(it).has(w))));
+  return hit.length === 1 ? hit[0] : null;
+}
+
+function matchRequest(look, slot, req, curId) {
+  const cur = curId ? ITEMS[curId] : null;
+  const ranked = candidates(look, slot).map((id) => {
+    const it = ITEMS[id];
+    const words = itemWords(it);
+    let m = 0;
+    let hits = 0;
+    req.want.forEach((w) => { if (words.has(w)) { m += 3; hits++; } });
+    req.avoid.forEach((w) => { if (words.has(w)) m -= 6; });
+    if (cur && req.mods.has('cheaper')) m += it.price < cur.price ? 2 + (cur.price - it.price) / 20 : -3;
+    if (cur && req.mods.has('premium')) m += it.price > cur.price ? 2 + (it.price - cur.price) / 30 : -3;
+    if (cur && req.mods.has('darker')) m += (artLum(cur.hex) - artLum(it.hex)) * 8;
+    if (cur && req.mods.has('lighter')) m += (artLum(it.hex) - artLum(cur.hex)) * 8;
+    if (req.mods.has('fit:Slim')) m += fitOf(it) === 'Slim' ? 2 : -1;
+    if (req.mods.has('fit:Relaxed')) m += fitOf(it) === 'Relaxed' ? 2 : -1;
+    if (!req.want.length && req.avoid.length && id !== curId) m += 1;
+    if (isExcluded(it) && !hits) m -= 5;
+    return { id, m, hits, s: score(id, look) };
+  }).filter((x) => x.m > 0 && (!req.want.length || x.hits > 0));
+  ranked.sort((a, b) => b.hits - a.hits || b.m - a.m || b.s - a.s);
+  return ranked[0]?.id || null;
+}
+
+const notesFor = (slot) => (state.notes || []).filter((n) => n.slot === slot);
+
+function noteBonus(it) {
+  let s = 0;
+  notesFor(it.slot).forEach((n) => {
+    const words = itemWords(it);
+    n.want.forEach((w) => { if (words.has(w)) s += 1.5; });
+    n.avoid.forEach((w) => { if (words.has(w)) s -= 3; });
+  });
+  return s;
+}
+
+function askedFor(it) {
+  const n = notesFor(it.slot).find((x) => x.want.length && x.want.every((w) => itemWords(it).has(w)));
+  return n ? n.text : '';
+}
+
+function saveNote(slot, text, want, avoid) {
+  if (!want.length && !avoid.length) return;
+  state.notes = (state.notes || []).filter((n) => !(n.slot === slot && n.text.toLowerCase() === text.toLowerCase()));
+  state.notes.push({ slot, text, want, avoid });
+  if (state.notes.length > 12) state.notes.shift();
+  state.signals.n++;
+}
+
+function removeNote(i) {
+  state.notes.splice(i, 1);
+  touch(); save(); refresh();
+}
+
+function askStylist(text, look, slot) {
+  const q = text.trim();
+  if (!q) return;
+  const req = parseRequest(q);
+  const target = slot || detectSlot(req);
+  if (!target) { toast('Say which piece, e.g. “black shoes” or “woody scent”'); return; }
+  const want = req.want.filter((w) => !GENERIC.has(w));
+  if (!want.length && !req.avoid.length && !req.mods.size) { toast('Didn’t catch that. Try a colour, brand, fit or type of clothing.'); return; }
+  const cur = currentPiece({ look, slot: target, draft: !!sheetCtx?.draft });
+  const id = matchRequest(look, target, { ...req, want }, cur.id);
+  saveNote(target, q, want, req.avoid);
+  if (!id || id === cur.id) {
+    touch(); save(); refresh();
+    toast(id ? 'That’s already what you’ve got. Saved it for next time.' : `Nothing in your ${look} look matches “${q}” yet. Saved it for next time.`);
+    return;
+  }
+  pick(look, target, id, `Swapped to ${ITEMS[id].colour.toLowerCase()} ${ITEMS[id].name.toLowerCase()} for “${q}”`);
 }
 
 // ---------- Actions ----------
@@ -1319,9 +1496,17 @@ screen.addEventListener('click', (e) => {
   if (d.blook) { browseLook = d.blook; ringPos = null; return render(); }
   if (d.bslot) { browseSlot = d.bslot; return render(); }
   if (d.remove) return removeOwned(d.remove);
+  if (d.noteRemove) return removeNote(+d.noteRemove);
   if (t.id === 'addBtn') return addOwned();
   if (t.id === 'redo') return startOnboarding();
   if (t.id === 'reset') { state = blank(); touch(); save(); startOnboarding(); }
+});
+
+screen.addEventListener('submit', (e) => {
+  const f = e.target.closest('[data-ask-look]');
+  if (!f) return;
+  e.preventDefault();
+  askStylist(f.querySelector('input').value, f.dataset.askLook, null);
 });
 
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
