@@ -1,4 +1,4 @@
-const STORE_KEY = 'style-proto-v3';
+const STORE_KEY = 'style-proto-v4';
 const screen = document.getElementById('screen');
 const tabs = document.getElementById('tabs');
 
@@ -11,12 +11,19 @@ const WEEKENDS = ['Outdoors', 'City and cafés', 'Sport', 'Travel', 'Mostly at h
 const FITS = ['Slim', 'Regular', 'Relaxed'];
 const COLOURS = ['Mostly neutrals', 'Earth tones', 'Happy with some colour'];
 const NEVER = ['Shorts', 'Hoodies', 'Boots', 'Blazers', 'Tight fits', 'Secondhand'];
+const SLOT_FILTERS = ['All', 'Liked', 'Top', 'Bottom', 'Shoes', 'Layer', 'Accessory'];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = (n) => `£${Math.round(n).toLocaleString('en-GB')}`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const listJoin = (a) => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
+const heart = (on) => `<svg viewBox="0 0 24 24" class="heart${on ? ' on' : ''}" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>`;
 
-const blank = () => ({ profile: null, picks: {}, ownedIds: [], ownedManual: [], view: { tab: 'home', look: null } });
+const blank = () => ({
+  profile: null, picks: {}, ownedIds: [], ownedManual: [],
+  likes: { items: [], outfits: [] }, signals: { away: {}, n: 0 },
+  view: { tab: 'home', look: null },
+});
 const blankProfile = () => ({
   goals: [], goalText: '',
   height: '', flags: [], chest: '', waist: '', inseam: '', shoe: '',
@@ -30,22 +37,31 @@ let state = load() || blank();
 let onboarding = false;
 let draft = null;
 let step = 0;
+let browseSlot = 'All';
+let browseOrder = null;
+let sheetEl = null;
+let sheetCtx = null;
+let tasteCache = null;
 
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE_KEY));
-    return s && s.view ? s : null;
-  } catch { return null; }
+    if (s && s.view) return s;
+    const old = JSON.parse(localStorage.getItem('style-proto-v3'));
+    if (old && old.profile) return { ...blank(), profile: old.profile };
+  } catch { /* fall through to a fresh start */ }
+  return null;
 }
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* storage full or blocked, run in memory */ }
 }
 function toast(msg) {
+  document.querySelector('.toast')?.remove();
   const t = document.createElement('div');
   t.className = 'toast';
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 1800);
+  setTimeout(() => t.remove(), 2200);
 }
 function chip(label, on) {
   return `<button type="button" class="chip${on ? ' on' : ''}" data-val="${esc(label)}">${esc(label)}</button>`;
@@ -63,7 +79,7 @@ function question(title, key, options, multi = false, hint = '') {
 
 const hexToRgb = (hex) => {
   const m = String(hex).match(/^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
-  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null;
+  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [180, 175, 165];
 };
 const rgbToHex = (r, g, b) => `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -94,7 +110,7 @@ const paletteDist = (hex, palette) => {
 function closestLook(palette) {
   let best = null;
   LOOK_ORDER.filter((l) => l !== 'Gym').forEach((l) => {
-    const d = SLOTS.reduce((sum, s) => sum + paletteDist(ITEMS[LOOKS[l].options[s][0]].hex, palette), 0);
+    const d = SLOTS.reduce((sum, s) => sum + paletteDist(ITEMS[LOOKS[l].signature[s]].hex, palette), 0);
     if (!best || d < best.d) best = { l, d };
   });
   return best.l;
@@ -297,6 +313,7 @@ const STEPS = [
 
 function startOnboarding() {
   onboarding = true;
+  closeSheet();
   draft = state.profile ? structuredClone(state.profile) : blankProfile();
   step = 0;
   tabs.classList.add('hidden');
@@ -376,7 +393,75 @@ function finishOnboarding() {
   setTimeout(render, 1400);
 }
 
+// ---------- Taste: what his likes and changes say about him ----------
+
+function touch() { tasteCache = null; }
+
+function getTaste() {
+  if (tasteCache) return tasteCache;
+  const weights = {};
+  state.likes.items.forEach((id) => { if (ITEMS[id]) weights[id] = (weights[id] || 0) + 1; });
+  state.likes.outfits.forEach((o) => Object.values(o.pieces).forEach((id) => { if (ITEMS[id]) weights[id] = (weights[id] || 0) + 0.5; }));
+  const t = { total: 0, tones: {}, fits: {}, shops: {}, families: {}, weights };
+  Object.entries(weights).forEach(([id, w]) => {
+    const it = ITEMS[id];
+    t.total += w;
+    t.tones[tone(it.hex)] = (t.tones[tone(it.hex)] || 0) + w;
+    t.fits[fitOf(it)] = (t.fits[fitOf(it)] || 0) + w;
+    t.shops[it.shop] = (t.shops[it.shop] || 0) + w;
+    t.families[it.family] = (t.families[it.family] || 0) + w;
+  });
+  tasteCache = t;
+  return t;
+}
+
+function tasteSummary() {
+  const t = getTaste();
+  const interactions = state.likes.items.length + state.likes.outfits.length + state.signals.n;
+  const level = interactions < 5 ? 'Just getting started' : interactions < 15 ? 'Learning your taste' : 'Dialled in';
+  const top = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const traits = [];
+  let shops = [];
+  if (t.total >= 2) {
+    traits.push({ neutral: 'neutral colours', earth: 'earth tones', colour: 'a bit of colour' }[top(t.tones)]);
+    const f = top(t.fits);
+    if (f !== 'Regular') traits.push(`${f.toLowerCase()} fits`);
+    shops = Object.entries(t.shops).filter(([k, v]) => v >= 1 && k !== 'Vinted (used)').sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => k);
+  }
+  const line = [
+    traits.length ? `You lean towards ${listJoin(traits)}.` : '',
+    shops.length ? `You keep liking ${listJoin(shops)}.` : '',
+  ].filter(Boolean).join(' ');
+  return { level, pct: Math.min(100, (interactions / 20) * 100), line, interactions };
+}
+
+const isLiked = (id) => state.likes.items.includes(id);
+const outfitKey = (o) => `${o.look}|${o.name}`;
+const isOutfitLiked = (o) => state.likes.outfits.some((x) => outfitKey(x) === outfitKey(o));
+
+function toggleLike(id) {
+  if (isLiked(id)) {
+    state.likes.items = state.likes.items.filter((x) => x !== id);
+  } else {
+    state.likes.items.push(id);
+    toast(`Liked. Your outfits will lean towards ${ITEMS[id].shop === 'Vinted (used)' ? 'this' : `this and more ${ITEMS[id].shop}`}.`);
+  }
+  touch(); save(); refresh();
+}
+
+function toggleOutfitLike(o) {
+  if (isOutfitLiked(o)) {
+    state.likes.outfits = state.likes.outfits.filter((x) => outfitKey(x) !== outfitKey(o));
+  } else {
+    state.likes.outfits.push({ name: o.name, look: o.look, pieces: { ...o.pieces } });
+    toast('Liked. Its pieces now count towards your taste.');
+  }
+  touch(); save(); refresh();
+}
+
 // ---------- Wardrobe engine (stand-in for the AI) ----------
+
+const candidates = (look, slot) => Object.values(ITEMS).filter((it) => it.slot === slot && it.looks.includes(look)).map((it) => it.id);
 
 function isExcluded(it) {
   const n = state.profile.never;
@@ -388,30 +473,48 @@ function isExcluded(it) {
     || (n.includes('Secondhand') && /vinted/i.test(it.shop));
 }
 
-// How well a piece suits him: the look's own order first, then his fit, colour, photo and hard noes.
-function score(id, rank) {
+// How well a piece suits him in this look: the look's signature, his answers, his photo, then everything he's liked or rejected.
+function score(id, look) {
   const p = state.profile;
   const it = ITEMS[id];
-  if (isExcluded(it)) return -100 - rank;
-  let s = 3 - rank;
+  if (isExcluded(it)) return -100;
+  const sig = LOOKS[look].signature[it.slot];
+  let s = 0;
+  if (sig === id) s += 3;
+  else if (sig && ITEMS[sig].family === it.family) s += 1.5;
+  s -= it.price / 60;
   if (p.fit !== 'Regular' && fitOf(it) === p.fit) s += 1.5;
   const t = tone(it.hex);
   if (p.colours === 'Mostly neutrals' && t === 'colour') s -= 1.5;
   if (p.colours === 'Earth tones' && t === 'earth') s += 1.5;
   if (p.colours === 'Happy with some colour' && t === 'colour') s += 1;
   if (p.refPalette) s += Math.max(0, 2.5 - paletteDist(it.hex, p.refPalette) / 40);
+
+  const taste = getTaste();
+  if (isLiked(id)) s += 6;
+  else if (taste.weights[id]) s += 2;
+  if (taste.total >= 1) {
+    s += (1.5 * (taste.tones[t] || 0)) / taste.total;
+    s += (1 * (taste.fits[fitOf(it)] || 0)) / taste.total;
+    s += Math.min(1.5, 0.75 * (taste.shops[it.shop] || 0));
+    if (!isLiked(id) && taste.families[it.family]) s += 1;
+  }
+  s -= 1.2 * Math.min(3, state.signals.away[id] || 0);
   return s;
 }
 
-function bestFor(lane, slot) {
-  const opts = LOOKS[lane].options[slot];
-  return opts.map((id, i) => ({ id, s: score(id, i) })).sort((a, b) => b.s - a.s)[0].id;
+function bestFor(look, slot, extra = () => 0) {
+  return candidates(look, slot).map((id) => ({ id, s: score(id, look) + extra(id) })).sort((a, b) => b.s - a.s)[0].id;
 }
 
 function reasonsFor(id) {
   const p = state.profile;
   const it = ITEMS[id];
+  const taste = getTaste();
   const out = [];
+  if (isLiked(id)) out.push('you liked this');
+  else if (taste.families[it.family]) out.push('similar to something you liked');
+  else if ((taste.shops[it.shop] || 0) >= 1 && it.shop !== 'Vinted (used)') out.push(`you like ${it.shop}`);
   if (p.refPalette && paletteDist(it.hex, p.refPalette) < 35) out.push('matches your reference photo');
   if (p.fit !== 'Regular' && fitOf(it) === p.fit) out.push(`${p.fit.toLowerCase()} cut, the way you like it`);
   if (p.colours === 'Earth tones' && tone(it.hex) === 'earth') out.push('an earth tone, like you asked');
@@ -437,7 +540,7 @@ function evaluate(share) {
   const choice = [];
   p.lanes.forEach((lane) => SLOTS.forEach((slot) => {
     if (state.ownedManual.some((o) => o.slot === slot && o.lanes.includes(lane))) return;
-    const opts = LOOKS[lane].options[slot];
+    const opts = candidates(lane, slot);
     const pick = state.picks[lane]?.[slot];
     const locked = opts.includes(pick);
     choice.push({ lane, slot, locked, id: locked ? pick : opts.find((o) => owned.has(o)) || bestFor(lane, slot) });
@@ -448,7 +551,7 @@ function evaluate(share) {
     let best = null;
     const before = total();
     choice.filter((c) => !c.locked).forEach((c) => {
-      LOOKS[c.lane].options[c.slot].forEach((opt) => {
+      candidates(c.lane, c.slot).forEach((opt) => {
         if (opt === c.id || isExcluded(ITEMS[opt]) || !(owned.has(opt) || choice.some((o) => o !== c && o.id === opt))) return;
         const was = c.id;
         c.id = opt;
@@ -502,6 +605,35 @@ function evaluate(share) {
   };
 }
 
+// Pieces that sit well next to an anchor piece.
+function compat(it, anchor) {
+  const t = tone(it.hex);
+  const at = tone(anchor.hex);
+  let s = 0;
+  if (at === 'colour') s += t === 'neutral' ? 1 : t === 'colour' ? -1.5 : 0;
+  if (at === 'earth') s += t === 'earth' ? 0.8 : t === 'neutral' ? 0.5 : -0.5;
+  if (it.shop === anchor.shop) s += 0.5;
+  return s;
+}
+
+function buildAround(anchorId) {
+  const a = ITEMS[anchorId];
+  const look = a.looks.find((l) => state.profile.lanes.includes(l)) || a.looks[0];
+  const pieces = {};
+  SLOTS.forEach((slot) => {
+    pieces[slot] = slot === a.slot ? anchorId : bestFor(look, slot, (id) => compat(ITEMS[id], a));
+  });
+  return { name: `Built around your ${a.colour.toLowerCase()} ${a.name.toLowerCase()}`, look, pieces };
+}
+
+function matchPct(o) {
+  const avg = SLOTS.reduce((sum, s) => sum + score(o.pieces[s], o.look), 0) / SLOTS.length;
+  return Math.max(50, Math.min(99, Math.round(72 + avg * 4)));
+}
+
+const piecesOf = (o) => Object.fromEntries(SLOTS.map((s) => [s, { item: ITEMS[o.pieces[s]] }]));
+const outfitPrice = (o) => SLOTS.reduce((sum, s) => sum + ITEMS[o.pieces[s]].price, 0);
+
 function parseHeight(h) {
   const s = String(h).toLowerCase();
   const cm = s.match(/(\d{3})\s*cm/);
@@ -553,6 +685,7 @@ function renderHome() {
   const pl = plan();
   const unused = LOOK_ORDER.filter((l) => !p.lanes.includes(l));
   const pct = Math.min(100, (pl.spent / p.budget) * 100);
+  const likes = state.likes.items.length + state.likes.outfits.length;
   const readyLine = pl.ready.length
     ? `Your buy-now list finishes <b>${pl.ready.length} of ${p.lanes.length}</b> looks.`
     : 'Your budget doesn’t finish a full look yet, so this starts with the pieces that work hardest.';
@@ -569,14 +702,15 @@ function renderHome() {
         <div><div class="k">Buy now</div><div class="v">${money(pl.spent)}</div></div>
       </div>
       <div class="bar"><span style="width:${pct}%"></span></div>
-      <p>${readyLine}${sharedLine}</p>
+      <p>${readyLine}${sharedLine}${likes ? ` Tuned by ${plural(likes, 'like')}.` : ''}</p>
       ${p.refMode === 'image' ? `<div class="plan-ref"><img src="${p.refImage}" alt=""><span>Colours leaning towards your reference photo.</span></div>` : ''}
       <button class="btn light" data-go="shop">See what to buy first</button>
     </section>
     <h2 class="section">Your looks</h2>
     <div class="grid">${p.lanes.map((l) => tile(l, pl)).join('')}</div>
     ${unused.length ? `<h2 class="section">Add a look</h2>
-      <div class="chips">${unused.map((l) => `<button class="chip add" data-add="${esc(l)}">+ ${esc(l)}</button>`).join('')}</div>` : ''}`;
+      <div class="chips">${unused.map((l) => `<button class="chip add" data-add="${esc(l)}">+ ${esc(l)}</button>`).join('')}</div>` : ''}
+    <button class="btn ghost browse-cta" data-go="browse">Browse outfits and pieces</button>`;
 }
 
 function tile(lane, pl) {
@@ -626,7 +760,6 @@ function pieceCard(lane, slot, x, pl) {
   const also = x.manual ? [] : [...pl.usage[x.id]].filter((l) => l !== lane);
   const notes = state.profile.flags.map((f) => BUILD_NOTES[f]?.[slot]).filter(Boolean);
   const mine = x.manual ? [] : reasonsFor(x.id);
-  const canSwap = !x.manual && LOOKS[lane].options[slot].filter((o) => !isExcluded(ITEMS[o])).length > 1;
   return `
     <article class="piece">
       <div class="piece-head">
@@ -646,10 +779,75 @@ function pieceCard(lane, slot, x, pl) {
       ${notes.map((n) => `<p class="why build">For your build: ${esc(n)}</p>`).join('')}
       ${also.length ? `<p class="also">Also in ${also.map((l) => `<span class="dot" style="background:${LOOKS[l].tint}"></span>${esc(l)}`).join(', ')}</p>` : ''}
       ${x.manual ? '' : `<div class="piece-actions">
-        ${canSwap ? `<button data-swap="${slot}">Swap</button>` : ''}
-        <button data-own="${slot}" class="${x.owned ? 'on' : ''}">${x.owned ? 'Owned ✓' : 'I own something like this'}</button>
+        <button class="primary" data-change="${slot}">Change</button>
+        <button class="icon${isLiked(x.id) ? ' on' : ''}" data-like="${esc(x.id)}" aria-label="Like">${heart(isLiked(x.id))}</button>
+        <button data-own="${slot}" class="${x.owned ? 'on' : ''}">${x.owned ? 'Owned ✓' : 'I own this'}</button>
       </div>`}
     </article>`;
+}
+
+function renderBrowse() {
+  const ts = tasteSummary();
+  const outfits = OUTFITS.map((o, i) => ({ ...o, i, match: matchPct(o) }));
+  // Order is fixed per visit so liking something doesn't reshuffle what he's looking at.
+  browseOrder ||= {
+    outfits: [...outfits].sort((a, b) => b.match - a.match).map((o) => o.i),
+    families: Object.keys(FAMILIES)
+      .map((fam) => ({ fam, s: Math.max(...Object.values(ITEMS).filter((it) => it.family === fam).flatMap((it) => it.looks.map((l) => score(it.id, l)))) }))
+      .sort((a, b) => b.s - a.s)
+      .map((f) => f.fam),
+  };
+  const families = browseOrder.families.map((fam) => {
+    const variants = Object.values(ITEMS).filter((it) => it.family === fam);
+    const best = variants.map((it) => ({ it, s: Math.max(...it.looks.map((l) => score(it.id, l))) })).sort((a, b) => b.s - a.s)[0];
+    return { fam, variants, show: variants.find((v) => isLiked(v.id)) || best.it };
+  });
+  const shown = families.filter((f) => browseSlot === 'All' || (browseSlot === 'Liked' ? f.variants.some((v) => isLiked(v.id)) : FAMILIES[f.fam].slot === browseSlot));
+  const carouselLeft = screen.querySelector('.carousel')?.scrollLeft || 0;
+
+  screen.innerHTML = `
+    <header class="top">
+      <div class="overline">Browse</div>
+      <h1 class="serif">Find what you like.</h1>
+      <p class="sub">Like outfits and pieces. Every like makes your wardrobe more yours.</p>
+    </header>
+    <section class="taste">
+      <div class="taste-row"><span class="k">Your taste</span><span class="taste-level">${ts.level}</span></div>
+      <div class="bar"><span style="width:${ts.pct}%"></span></div>
+      <p>${ts.line ? `${esc(ts.line)} Your outfits are using this.` : 'Like a few outfits or pieces below and this starts to fill in.'}</p>
+    </section>
+    <h2 class="section">Outfits for you</h2>
+    <div class="carousel">${browseOrder.outfits.map((i) => outfits[i]).map((o) => `
+      <article class="ocard" style="--tint:${LOOKS[o.look].tint}">
+        <div class="ocard-head">
+          <div>
+            <div class="ocard-name serif">${esc(o.name)}</div>
+            <div class="ocard-meta">${esc(o.look)} · ${money(outfitPrice(o))}</div>
+          </div>
+          <span class="pill ok">${o.match}% match</span>
+        </div>
+        <div class="ocard-fig">${avatarSVG(piecesOf(o))}</div>
+        <div class="strip">${SLOTS.map((s) => `<span style="background:${esc(ITEMS[o.pieces[s]].hex)}"></span>`).join('')}</div>
+        <div class="ocard-actions">
+          <button class="icon-light${isOutfitLiked(o) ? ' on' : ''}" data-like-outfit="${o.i}" aria-label="Like outfit">${heart(isOutfitLiked(o))}</button>
+          <button class="btn light" data-wear="${o.i}">Wear this</button>
+        </div>
+      </article>`).join('')}
+    </div>
+    <h2 class="section">Pieces</h2>
+    <div class="chips filter">${SLOT_FILTERS.map((f) => `<button class="chip${browseSlot === f ? ' on' : ''}" data-bslot="${f}">${f === 'All' || f === 'Liked' ? f : `${f}s`.replace('Shoess', 'Shoes').replace('Accessorys', 'Accessories')}</button>`).join('')}</div>
+    ${shown.length ? `<div class="pgrid">${shown.map((f) => `
+      <button class="pcard" data-item="${esc(f.show.id)}">
+        <span class="pcard-sw" style="background:${esc(f.show.hex)}">
+          <span class="heart-btn${isLiked(f.show.id) ? ' on' : ''}" data-like="${esc(f.show.id)}">${heart(isLiked(f.show.id))}</span>
+        </span>
+        <span class="pcard-body">
+          <span class="name">${esc(f.show.name)}</span>
+          <span class="small">${esc(f.show.shop)} · ${money(f.show.price)}</span>
+          <span class="dots">${f.variants.map((v) => `<span style="background:${esc(v.hex)}"></span>`).join('')}</span>
+        </span>
+      </button>`).join('')}</div>` : '<div class="empty">Nothing liked yet. Tap the heart on anything you like.</div>'}`;
+  screen.querySelector('.carousel').scrollLeft = carouselLeft;
 }
 
 function renderShop() {
@@ -691,7 +889,7 @@ function shopRow(id, pl) {
 function renderOwned() {
   const p = state.profile;
   const rows = [
-    ...state.ownedIds.map((id) => ({ key: `id:${id}`, name: ITEMS[id].name, hex: ITEMS[id].hex, sub: `${ITEMS[id].slot} · ${ITEMS[id].colour}` })),
+    ...state.ownedIds.filter((id) => ITEMS[id]).map((id) => ({ key: `id:${id}`, name: ITEMS[id].name, hex: ITEMS[id].hex, sub: `${ITEMS[id].slot} · ${ITEMS[id].colour}` })),
     ...state.ownedManual.map((o, i) => ({ key: `m:${i}`, name: o.name, hex: o.hex, sub: `${o.slot} · ${o.lanes.join(', ')}` })),
   ];
   screen.innerHTML = `
@@ -706,7 +904,7 @@ function renderOwned() {
           <div class="swatch" style="background:${esc(r.hex)}"></div>
           <div class="meta"><div class="name">${esc(r.name)}</div><div class="small">${esc(r.sub)}</div></div>
           <button class="link" data-remove="${esc(r.key)}">Remove</button>
-        </div>`).join('') : '<div class="empty">Nothing yet. Tap “I own something like this” on any piece, or add one below.</div>'}
+        </div>`).join('') : '<div class="empty">Nothing yet. Tap “I own this” on any piece, or add one below.</div>'}
     </section>
     <h2 class="section">Add a piece</h2>
     <section class="card pad">
@@ -762,13 +960,192 @@ function renderYou() {
   if (file) file.addEventListener('change', () => handleRefFile(file.files[0], state.profile));
 }
 
+// ---------- Bottom sheets ----------
+
+function openSheet(ctx) {
+  sheetCtx = ctx;
+  if (!sheetEl) {
+    sheetEl = document.createElement('div');
+    sheetEl.className = 'sheet-backdrop';
+    sheetEl.addEventListener('click', onSheetClick);
+    document.body.appendChild(sheetEl);
+    document.body.classList.add('locked');
+  }
+  renderSheet();
+}
+
+function closeSheet() {
+  sheetEl?.remove();
+  sheetEl = null;
+  sheetCtx = null;
+  document.body.classList.remove('locked');
+}
+
+function renderSheet() {
+  if (!sheetEl) return;
+  const body = sheetCtx.type === 'change' ? changeSheet(sheetCtx) : sheetCtx.type === 'built' ? builtSheet(sheetCtx.outfit) : itemSheet(sheetCtx.id);
+  sheetEl.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div><button class="sheet-close" data-close aria-label="Close">×</button>${body}</div>`;
+}
+
+function itemHeader(it, withLike = true) {
+  return `
+    <div class="sheet-item">
+      <div class="swatch big" style="background:${esc(it.hex)}"></div>
+      <div class="meta">
+        <div class="name">${esc(it.name)}</div>
+        <div class="small">${esc(it.colour)} · ${esc(it.fit)} · ${esc(it.shop)}</div>
+        <div class="price">${money(it.price)}</div>
+      </div>
+      ${withLike ? `<button class="icon${isLiked(it.id) ? ' on' : ''}" data-like="${esc(it.id)}" aria-label="Like">${heart(isLiked(it.id))}</button>` : ''}
+    </div>`;
+}
+
+function changeSheet({ look, slot }) {
+  const cur = plan().looks[look][slot];
+  const it = cur.item;
+  const all = candidates(look, slot).filter((id) => !isExcluded(ITEMS[id]));
+  const colours = all.filter((id) => ITEMS[id].family === it.family);
+  const others = all.filter((id) => id !== cur.id).sort((a, b) => score(b, look) - score(a, look));
+  const diff = (id) => {
+    const d = ITEMS[id].price - it.price;
+    return d === 0 ? 'Same price' : d < 0 ? `${money(-d)} less` : `${money(d)} more`;
+  };
+  return `
+    <div class="overline">${slot} · ${esc(look)}</div>
+    ${itemHeader(it)}
+    <div class="quick">
+      <button data-quick="cheaper">Cheaper</button>
+      <button data-quick="colour"${colours.length < 2 ? ' disabled' : ''}>Different colour</button>
+      <button data-quick="different">Something different</button>
+    </div>
+    ${colours.length > 1 ? `
+      <div class="label">Colours</div>
+      <div class="swatches">${colours.map((id) => `<button class="sw${id === cur.id ? ' on' : ''}" data-pick="${esc(id)}" style="background:${esc(ITEMS[id].hex)}" title="${esc(ITEMS[id].colour)}" aria-label="${esc(ITEMS[id].colour)}"></button>`).join('')}</div>` : ''}
+    <div class="label">Everything that works in your ${esc(look)} look</div>
+    <div class="opt-list">${others.map((id, i) => {
+      const o = ITEMS[id];
+      const why = reasonsFor(id)[0];
+      return `
+        <div class="opt">
+          <button class="opt-main" data-pick="${esc(id)}">
+            <span class="swatch" style="background:${esc(o.hex)}"></span>
+            <span class="meta">
+              <span class="name">${esc(o.name)}${i === 0 ? ' <span class="rec-tag">Best match</span>' : ''}</span>
+              <span class="small">${esc(o.colour)} · ${esc(o.shop)} · ${money(o.price)} <span class="diff">${diff(id)}</span></span>
+              ${why ? `<span class="small you">${esc(why.charAt(0).toUpperCase() + why.slice(1))}</span>` : ''}
+            </span>
+          </button>
+          <button class="icon${isLiked(id) ? ' on' : ''}" data-like="${esc(id)}" aria-label="Like">${heart(isLiked(id))}</button>
+        </div>`;
+    }).join('')}</div>`;
+}
+
+function itemSheet(id) {
+  const it = ITEMS[id];
+  const variants = Object.values(ITEMS).filter((x) => x.family === it.family);
+  const lanes = state.profile.lanes;
+  const reasons = reasonsFor(id);
+  return `
+    <div class="overline">${esc(it.slot)}</div>
+    ${itemHeader(it)}
+    <p class="why">${esc(it.why)}</p>
+    ${reasons.length ? `<p class="why you">For you: ${esc(reasons.join(', '))}.</p>` : ''}
+    ${isExcluded(it) ? '<p class="note">You said you’d never wear this, so it won’t be picked automatically.</p>' : ''}
+    ${variants.length > 1 ? `
+      <div class="label">Colours</div>
+      <div class="swatches">${variants.map((v) => `<button class="sw${v.id === id ? ' on' : ''}" data-variant="${esc(v.id)}" style="background:${esc(v.hex)}" title="${esc(v.colour)}" aria-label="${esc(v.colour)}"></button>`).join('')}</div>` : ''}
+    <button class="btn" data-build="${esc(id)}">Build an outfit around this</button>
+    <div class="label" style="margin-top:22px">Or add it to a look</div>
+    <div class="chips">${it.looks.map((l) => `<button class="chip" data-addto="${esc(l)}">${lanes.includes(l) ? '' : '+ '}${esc(l)}</button>`).join('')}</div>`;
+}
+
+function builtSheet(o) {
+  const inLanes = state.profile.lanes.includes(o.look);
+  return `
+    <div class="overline">Built for you · ${esc(o.look)}</div>
+    <h2 class="sheet-title serif">${esc(o.name)}</h2>
+    <div class="built">
+      <div class="built-fig" style="--tint:${LOOKS[o.look].tint}">${avatarSVG(piecesOf(o))}</div>
+      <div class="built-list">${SLOTS.map((s) => {
+        const it = ITEMS[o.pieces[s]];
+        return `<div class="built-row"><span class="swatch sm" style="background:${esc(it.hex)}"></span><span class="meta"><span class="name">${esc(it.name)}</span><span class="small">${esc(it.colour)} · ${money(it.price)}</span></span></div>`;
+      }).join('')}</div>
+    </div>
+    <div class="built-total"><span>${matchPct(o)}% match</span><span>${money(outfitPrice(o))}</span></div>
+    <div class="actions">
+      <button class="btn ghost" data-like-built>${isOutfitLiked(o) ? 'Liked ✓' : 'Like'}</button>
+      <button class="btn" data-apply>${inLanes ? `Use as my ${esc(o.look)} look` : `Add as a ${esc(o.look)} look`}</button>
+    </div>`;
+}
+
+function onSheetClick(e) {
+  if (e.target === sheetEl) { closeSheet(); return; }
+  const t = e.target.closest('button');
+  if (!t || t.disabled) return;
+  const d = t.dataset;
+  if ('close' in d) return closeSheet();
+  if (d.like) return toggleLike(d.like);
+  if (d.pick) return pick(sheetCtx.look, sheetCtx.slot, d.pick);
+  if (d.quick) return quick(d.quick);
+  if (d.variant) { sheetCtx.id = d.variant; return renderSheet(); }
+  if (d.build) { sheetCtx = { type: 'built', outfit: buildAround(d.build) }; return renderSheet(); }
+  if (d.addto) return addToLook(sheetCtx.id, d.addto);
+  if ('likeBuilt' in d) return toggleOutfitLike(sheetCtx.outfit);
+  if ('apply' in d) return applyOutfit(sheetCtx.outfit);
+}
+
 // ---------- Actions ----------
 
-function swap(lane, slot) {
-  const opts = LOOKS[lane].options[slot].filter((o) => !isExcluded(ITEMS[o]));
-  const current = plan().looks[lane][slot].id;
-  (state.picks[lane] ||= {})[slot] = opts[(opts.indexOf(current) + 1) % opts.length];
-  save(); render();
+function refresh() {
+  render();
+  renderSheet();
+}
+
+function pick(look, slot, id, msg) {
+  const cur = plan().looks[look][slot];
+  if (cur.id && cur.id !== id) state.signals.away[cur.id] = (state.signals.away[cur.id] || 0) + 1;
+  state.signals.n++;
+  (state.picks[look] ||= {})[slot] = id;
+  touch(); save(); closeSheet(); render();
+  toast(msg || `Swapped to ${ITEMS[id].colour.toLowerCase()} ${ITEMS[id].name.toLowerCase()}`);
+}
+
+function quick(kind) {
+  const { look, slot } = sheetCtx;
+  const cur = plan().looks[look][slot].item;
+  const ranked = candidates(look, slot).filter((id) => id !== cur.id && !isExcluded(ITEMS[id])).sort((a, b) => score(b, look) - score(a, look));
+  let target;
+  if (kind === 'cheaper') target = ranked.find((id) => ITEMS[id].price < cur.price);
+  if (kind === 'colour') target = ranked.find((id) => ITEMS[id].family === cur.family);
+  if (kind === 'different') target = ranked.find((id) => ITEMS[id].family !== cur.family);
+  if (!target) {
+    toast(kind === 'cheaper' ? 'That’s already the cheapest option for this look' : 'Nothing else fits this look right now');
+    return;
+  }
+  const it = ITEMS[target];
+  const msg = kind === 'cheaper'
+    ? `Swapped to ${it.shop} ${it.name.toLowerCase()}, saves ${money(cur.price - it.price)}`
+    : `Swapped to ${it.colour.toLowerCase()} ${it.name.toLowerCase()}`;
+  pick(look, slot, target, msg);
+}
+
+function addToLook(id, look) {
+  const it = ITEMS[id];
+  if (!state.profile.lanes.includes(look)) state.profile.lanes.push(look);
+  (state.picks[look] ||= {})[it.slot] = id;
+  state.signals.n++;
+  touch(); save(); closeSheet();
+  go('home', look);
+  toast(`Added to your ${look} look`);
+}
+
+function applyOutfit(o) {
+  if (!state.profile.lanes.includes(o.look)) state.profile.lanes.push(o.look);
+  state.picks[o.look] = { ...o.pieces };
+  state.signals.n++;
+  touch(); save(); closeSheet();
+  go('home', o.look);
+  toast('Now tap Change on any piece to make it yours');
 }
 
 function toggleOwn(lane, slot) {
@@ -783,7 +1160,8 @@ function toggleOwn(lane, slot) {
 }
 
 function removeOwned(key) {
-  const [kind, val] = key.split(':');
+  const [kind, ...rest] = key.split(':');
+  const val = rest.join(':');
   if (kind === 'id') state.ownedIds = state.ownedIds.filter((o) => o !== val);
   else state.ownedManual.splice(+val, 1);
   save(); render();
@@ -804,7 +1182,11 @@ function addOwned() {
 function colourHex(name) {
   const probe = document.createElement('span');
   probe.style.color = name.toLowerCase().replace(/\s+/g, '');
-  return probe.style.color || '#b9b3a8';
+  if (!probe.style.color) return '#b9b3a8';
+  document.body.appendChild(probe);
+  const rgb = getComputedStyle(probe).color.match(/\d+/g).map(Number);
+  probe.remove();
+  return rgbToHex(...rgb);
 }
 
 function render() {
@@ -813,10 +1195,11 @@ function render() {
   tabs.classList.remove('hidden');
   tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.tab === v.tab));
   if (v.tab === 'home' && v.look && state.profile.lanes.includes(v.look)) return renderLook(v.look);
-  ({ home: renderHome, shop: renderShop, owned: renderOwned, you: renderYou }[v.tab] || renderHome)();
+  ({ home: renderHome, browse: renderBrowse, shop: renderShop, owned: renderOwned, you: renderYou }[v.tab] || renderHome)();
 }
 
 function go(tab, look = null) {
+  if (tab === 'browse') browseOrder = null;
   state.view = { tab, look };
   save(); render();
   window.scrollTo(0, 0);
@@ -829,6 +1212,8 @@ tabs.onclick = (e) => {
 
 screen.addEventListener('click', (e) => {
   if (onboarding || !state.profile) return;
+  const likeSpan = e.target.closest('.heart-btn');
+  if (likeSpan) { e.stopPropagation(); toggleLike(likeSpan.dataset.like); return; }
   const t = e.target.closest('button');
   if (!t) return;
   const d = t.dataset;
@@ -842,12 +1227,19 @@ screen.addEventListener('click', (e) => {
   if ('back' in d) return go('home');
   if (d.add) { state.profile.lanes.push(d.add); save(); return go('home', d.add); }
   if (d.drop) { state.profile.lanes = state.profile.lanes.filter((l) => l !== d.drop); save(); return go('home'); }
-  if (d.swap) return swap(state.view.look, d.swap);
+  if (d.change) return openSheet({ type: 'change', look: state.view.look, slot: d.change });
+  if (d.like) return toggleLike(d.like);
   if (d.own) return toggleOwn(state.view.look, d.own);
+  if (d.item) return openSheet({ type: 'item', id: d.item });
+  if (d.wear) return applyOutfit(OUTFITS[+d.wear]);
+  if (d.likeOutfit) return toggleOutfitLike(OUTFITS[+d.likeOutfit]);
+  if (d.bslot) { browseSlot = d.bslot; return render(); }
   if (d.remove) return removeOwned(d.remove);
   if (t.id === 'addBtn') return addOwned();
   if (t.id === 'redo') return startOnboarding();
-  if (t.id === 'reset') { state = blank(); save(); startOnboarding(); }
+  if (t.id === 'reset') { state = blank(); touch(); save(); startOnboarding(); }
 });
+
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
 
 render();
