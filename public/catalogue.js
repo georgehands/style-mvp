@@ -1,142 +1,89 @@
 // Sample catalogue standing in for the AI + live shop search. Prices are illustrative.
 const SLOTS = ['Top', 'Bottom', 'Shoes', 'Layer', 'Accessory'];
 
-const LANES = ['Casual', 'Smart', 'Streetwear', 'Gym', 'Retro', 'Motorbike'];
+const item = (slot, name, colour, hex, fit, price, shop, why) => ({ slot, name, colour, hex, fit, price, shop, why });
 
-const CATALOGUE = {
+const ITEMS = {
+  t_tee_white: item('Top', 'Heavyweight tee', 'White', '#F1EEE6', 'Regular, ends at the hip', 15, 'Uniqlo', 'Thick cotton holds its shape, so it looks sharp instead of sloppy.'),
+  t_tee_black: item('Top', 'Boxy heavyweight tee', 'Black', '#1C1C1C', 'Boxy, slightly cropped', 20, 'H&M', 'Boxy and heavy is the base of the whole streetwear look.'),
+  t_oxford: item('Top', 'Oxford shirt', 'Light blue', '#BFD3E6', 'Slim', 30, 'Uniqlo', 'Works buttoned or open over a tee. One piece, two looks.'),
+  t_polo_navy: item('Top', 'Knitted polo', 'Navy', '#1F2A44', 'Fitted', 35, 'Zara', 'Smarter than a tee, easier than a shirt. The fastest upgrade there is.'),
+  t_polo_cream: item('Top', 'Knitted polo', 'Cream', '#E8DFCC', 'Fitted', 35, 'Zara', 'Soft, pale and logo-free. The quiet money look in one piece.'),
+  t_shirt_black: item('Top', 'Slim shirt', 'Black', '#161616', 'Slim, sleeves rolled', 30, 'Zara', 'Black near the face looks sharp in low light.'),
+  t_hoodie: item('Top', 'Plain hoodie', 'Grey marl', '#9A9A9A', 'Relaxed', 30, 'Uniqlo', 'No logos, good weight. Looks more expensive than it is.'),
+  t_train: item('Top', 'Training tee', 'Black', '#1E1E1E', 'Athletic cut', 20, 'Gymshark', 'Close through the chest and arms, room at the waist.'),
+  t_muscle: item('Top', 'Muscle-fit tee', 'Stone', '#BDB5A6', 'Short sleeve, fitted', 22, 'Gymshark', 'A shorter sleeve sits higher on the arm.'),
+
+  b_jeans_dark: item('Bottom', 'Straight jeans', 'Dark indigo', '#26324A', 'Straight', 40, "Levi's", 'Dark wash reads sharper than light and goes with nearly everything.'),
+  b_jeans_black: item('Bottom', 'Straight jeans', 'Black', '#1E1E1E', 'Slim straight', 40, "Levi's", 'Black denim dresses up or down in one move.'),
+  b_chinos: item('Bottom', 'Tapered chinos', 'Stone', '#C8BBA0', 'Slim tapered', 30, 'Uniqlo', 'The taper cleans up the line from hip to ankle.'),
+  b_trousers: item('Bottom', 'Tailored trousers', 'Charcoal', '#3A3B3F', 'Slim', 45, 'Zara', 'Proper trousers do more for looking put together than anything else.'),
+  b_pleated: item('Bottom', 'Pleated trousers', 'Cream', '#DCD3C0', 'Relaxed taper', 40, 'Mango', 'A little volume up top, clean at the ankle.'),
+  b_cargo: item('Bottom', 'Cargo trousers', 'Olive', '#4E5238', 'Relaxed straight', 40, 'H&M', 'Relaxed on top, stacks slightly at the shoe.'),
+  b_shorts: item('Bottom', '7-inch shorts', 'Charcoal', '#333333', 'Above the knee', 20, 'Gymshark', 'Above the knee looks more athletic.'),
+  b_joggers: item('Bottom', 'Tapered joggers', 'Black', '#1C1C1C', 'Tapered, cuffed', 30, 'Nike', 'Clean enough to wear to and from the gym.'),
+
+  s_white: item('Shoes', 'Leather trainers', 'White', '#F2F2EE', 'Low profile', 45, 'ASOS', 'The one shoe that makes almost any outfit look deliberate.'),
+  s_loafers: item('Shoes', 'Suede loafers', 'Brown', '#6B4A2F', 'Classic', 55, 'ASOS', 'Dressy without being formal. Sockless in summer.'),
+  s_chelsea: item('Shoes', 'Chelsea boots', 'Black', '#1A1A1A', 'Slim toe', 65, 'ASOS', 'Sleek, and they add a bit of height.'),
+  s_desert: item('Shoes', 'Desert boots', 'Sand', '#B89A72', 'Ankle height', 30, 'Vinted (used)', 'Softer than trainers, still easy. Secondhand keeps it cheap.'),
+  s_skate: item('Shoes', 'Canvas skate shoes', 'Black', '#222222', 'Low top', 60, 'Vans', 'Flat and simple, goes with every streetwear piece.'),
+  s_flat: item('Shoes', 'Flat canvas trainers', 'White', '#F0F0EC', 'Flat sole', 55, 'Converse', 'Stable for lifting, and fine outside the gym.'),
+  s_run: item('Shoes', 'Running trainers', 'Grey', '#8E9296', 'Cushioned', 70, 'ASICS', 'If you do cardio, this is the pair that does it all.'),
+
+  l_overshirt: item('Layer', 'Overshirt', 'Olive', '#5B5E3C', 'Boxy, hip length', 35, 'H&M', 'Adds shape across the shoulders without bulk.'),
+  l_denim: item('Layer', 'Denim jacket', 'Mid blue', '#5A7598', 'Cropped at the waist', 40, 'H&M', 'A classic that never looks like you tried too hard.'),
+  l_merino: item('Layer', 'Merino jumper', 'Navy', '#243049', 'Fitted crew neck', 35, 'Uniqlo', 'Thin enough to layer, smart enough for work.'),
+  l_cable: item('Layer', 'Cable-knit jumper', 'Cream', '#E6DCC6', 'Regular', 40, 'Vinted (used)', 'Texture reads expensive. Over the shoulders if it’s warm.'),
+  l_blazer: item('Layer', 'Unstructured blazer', 'Navy', '#26324A', 'Soft shoulder', 80, 'Zara', 'Instant structure through the shoulders, no stiff suit feel.'),
+  l_bomber: item('Layer', 'Bomber jacket', 'Black', '#202020', 'Cropped at the waist', 40, 'ASOS', 'Short length keeps the legs looking long.'),
+  l_qzip: item('Layer', 'Quarter-zip', 'Grey', '#7D7F83', 'Fitted', 35, 'Gymshark', 'Warm-up layer that still shows your shape.'),
+  l_zip: item('Layer', 'Zip hoodie', 'Navy', '#1F2A44', 'Regular', 30, 'Uniqlo', 'Simple, and it goes over anything.'),
+
+  a_watch_steel: item('Accessory', 'Steel watch', 'Silver', '#BFC3C7', 'Small face', 25, 'Casio', 'A watch is the cheapest signal that you thought about it.'),
+  a_watch_leather: item('Accessory', 'Leather strap watch', 'Tan', '#A0703F', 'Slim case', 30, 'Timex', 'Ties the belt and shoes together.'),
+  a_belt: item('Accessory', 'Leather belt', 'Brown', '#5C3A21', '3cm width', 18, 'M&S', 'Finishes the waist so the outfit reads as one.'),
+  a_cap: item('Accessory', 'Plain cap', 'Black', '#1A1A1A', 'Curved peak', 15, 'Nike', 'Keeps it simple on a bad hair day.'),
+  a_beanie: item('Accessory', 'Beanie', 'Charcoal', '#3A3A3A', 'Short, above the ear', 12, 'ASOS', 'Frames the face and finishes the look.'),
+  a_bag: item('Accessory', 'Holdall', 'Black', '#222222', 'Medium', 25, 'Decathlon', 'One tidy bag beats a rucksack stuffed with kit.'),
+  a_scent: item('Accessory', 'Fragrance', 'Fresh, woody', '#C9B79C', '30ml', 30, 'Zara', 'People notice it before they notice the outfit. Two sprays, not five.'),
+};
+
+// First option in each slot is the default pick.
+const LOOKS = {
   Casual: {
-    Top: [
-      { name: 'Heavyweight crew tee', colour: 'Off-white', hex: '#EEEAE0', fit: 'Regular, ends at the hip', price: 15, shop: 'Uniqlo', why: 'Thick cotton holds its shape, so it looks structured instead of sloppy.' },
-      { name: 'Oxford shirt', colour: 'Light blue', hex: '#BFD3E6', fit: 'Slim', price: 30, shop: 'Uniqlo', why: 'Works buttoned or open over a tee. One piece, two looks.' },
-    ],
-    Bottom: [
-      { name: 'Straight dark jeans', colour: 'Indigo', hex: '#26324A', fit: 'Straight', price: 40, shop: "Levi's", why: 'Dark wash reads sharper than light and goes with everything else here.' },
-      { name: 'Tapered chinos', colour: 'Stone', hex: '#C8BBA0', fit: 'Slim tapered', price: 30, shop: 'Uniqlo', why: 'The taper cleans up the line from hip to ankle.' },
-    ],
-    Shoes: [
-      { name: 'White leather trainers', colour: 'White', hex: '#F2F2EE', fit: 'Low profile', price: 45, shop: 'ASOS', why: 'The one shoe that makes a casual outfit look deliberate.' },
-      { name: 'Suede desert boots', colour: 'Sand', hex: '#B89A72', fit: 'Ankle height', price: 30, shop: 'Vinted (used)', why: 'Softer than trainers, still easy. Secondhand keeps it cheap.' },
-    ],
-    Layer: [
-      { name: 'Overshirt', colour: 'Olive', hex: '#5B5E3C', fit: 'Boxy, hip length', price: 35, shop: 'H&M', why: 'Adds shape across the shoulders without adding bulk.' },
-      { name: 'Denim jacket', colour: 'Mid blue', hex: '#5A7598', fit: 'Regular, cropped at the waist', price: 40, shop: 'H&M', why: 'A classic that never looks like you tried too hard.' },
-    ],
-    Accessory: [
-      { name: 'Steel digital watch', colour: 'Silver', hex: '#BFC3C7', fit: 'Small face', price: 25, shop: 'Casio', why: 'A watch is the cheapest signal that you thought about it.' },
-      { name: 'Leather belt', colour: 'Dark brown', hex: '#4A3222', fit: '3cm width', price: 18, shop: 'M&S', why: 'Finishes the waist so the outfit reads as one piece.' },
-    ],
+    tint: '#56654A',
+    tagline: 'Weekends, errands, the pub.',
+    options: { Top: ['t_tee_white', 't_oxford', 't_hoodie'], Bottom: ['b_jeans_dark', 'b_chinos'], Shoes: ['s_white', 's_desert'], Layer: ['l_overshirt', 'l_denim'], Accessory: ['a_watch_steel', 'a_belt'] },
   },
-  Smart: {
-    Top: [
-      { name: 'Knitted polo', colour: 'Navy', hex: '#1F2A44', fit: 'Fitted', price: 35, shop: 'Zara', why: 'Smarter than a tee, easier than a shirt. The fastest upgrade there is.' },
-      { name: 'Crisp white shirt', colour: 'White', hex: '#FAFAFA', fit: 'Slim', price: 30, shop: 'M&S', why: 'Clean and bright near your face, works with any trouser.' },
-    ],
-    Bottom: [
-      { name: 'Wool-blend trousers', colour: 'Charcoal', hex: '#3A3B3F', fit: 'Slim', price: 45, shop: 'Zara', why: 'Proper trousers do more for looking put together than anything else.' },
-      { name: 'Pleated trousers', colour: 'Taupe', hex: '#8C7E6D', fit: 'Relaxed taper', price: 40, shop: 'Mango', why: 'A bit of volume at the top, clean at the ankle. Looks current.' },
-    ],
-    Shoes: [
-      { name: 'Leather loafers', colour: 'Brown', hex: '#5C3A21', fit: 'Classic', price: 60, shop: 'ASOS', why: 'Dressy without being formal, and they work sockless in summer.' },
-      { name: 'Chelsea boots', colour: 'Black', hex: '#1A1A1A', fit: 'Slim toe', price: 65, shop: 'ASOS', why: 'Sleek and they add a little height.' },
-    ],
-    Layer: [
-      { name: 'Merino crew jumper', colour: 'Camel', hex: '#B08A5B', fit: 'Fitted', price: 35, shop: 'Uniqlo', why: 'Thin enough to layer, warm tone flatters most skin.' },
-      { name: 'Unstructured blazer', colour: 'Navy', hex: '#243049', fit: 'Soft shoulder', price: 80, shop: 'Zara', why: 'Instant structure through the shoulders, no stiff suit feeling.' },
-    ],
-    Accessory: [
-      { name: 'Leather strap watch', colour: 'Tan', hex: '#A0703F', fit: 'Slim case', price: 30, shop: 'Timex', why: 'Matches the shoes, ties the outfit together.' },
-      { name: 'Leather belt', colour: 'Brown', hex: '#5C3A21', fit: '3cm width', price: 18, shop: 'M&S', why: 'Match it to the shoes and the whole thing looks planned.' },
-    ],
+  'Smart Casual': {
+    tint: '#2F3E56',
+    tagline: 'Work, dinners, anywhere a tee won’t cut it.',
+    options: { Top: ['t_oxford', 't_polo_navy'], Bottom: ['b_chinos', 'b_trousers', 'b_jeans_dark'], Shoes: ['s_white', 's_loafers', 's_chelsea'], Layer: ['l_merino', 'l_blazer'], Accessory: ['a_watch_leather', 'a_belt'] },
+  },
+  'Old Money': {
+    tint: '#7A5C3A',
+    tagline: 'Quiet, expensive-looking, no logos.',
+    options: { Top: ['t_polo_cream', 't_oxford', 't_polo_navy'], Bottom: ['b_pleated', 'b_chinos'], Shoes: ['s_loafers', 's_white'], Layer: ['l_cable', 'l_merino', 'l_blazer'], Accessory: ['a_watch_leather', 'a_belt'] },
   },
   Streetwear: {
-    Top: [
-      { name: 'Boxy heavyweight tee', colour: 'Black', hex: '#1C1C1C', fit: 'Boxy, slightly cropped', price: 20, shop: 'H&M', why: 'Boxy and heavy is the base of the whole look.' },
-      { name: 'Plain hoodie', colour: 'Grey marl', hex: '#9A9A9A', fit: 'Relaxed', price: 30, shop: 'Uniqlo', why: 'No logos, good weight. Looks more expensive than it is.' },
-    ],
-    Bottom: [
-      { name: 'Cargo trousers', colour: 'Olive', hex: '#4E5238', fit: 'Relaxed straight', price: 40, shop: 'H&M', why: 'Relaxed on top, stacks slightly at the shoe.' },
-      { name: 'Carpenter trousers', colour: 'Charcoal', hex: '#3D3D3D', fit: 'Relaxed straight', price: 45, shop: 'Dickies', why: 'Workwear fabric, holds a sharp shape.' },
-    ],
-    Shoes: [
-      { name: 'Canvas skate shoes', colour: 'Black', hex: '#222222', fit: 'Low top', price: 60, shop: 'Vans', why: 'Flat and simple, goes with every piece here.' },
-      { name: 'Chunky retro runners', colour: 'Grey', hex: '#D0D0CC', fit: 'Chunky sole', price: 70, shop: 'Vinted (used)', why: 'Bulk at the shoe balances wider trousers.' },
-    ],
-    Layer: [
-      { name: 'Nylon bomber', colour: 'Black', hex: '#202020', fit: 'Cropped at the waist', price: 40, shop: 'ASOS', why: 'Short length keeps your legs looking long under baggy trousers.' },
-      { name: 'Work jacket', colour: 'Tan', hex: '#9C7A4E', fit: 'Boxy', price: 60, shop: 'Dickies', why: 'Adds colour without being loud.' },
-    ],
-    Accessory: [
-      { name: 'Beanie', colour: 'Charcoal', hex: '#3A3A3A', fit: 'Short, sits above the ear', price: 12, shop: 'ASOS', why: 'Frames the face and finishes the look.' },
-      { name: 'Crossbody bag', colour: 'Black', hex: '#1A1A1A', fit: 'Small', price: 20, shop: 'ASOS', why: 'Useful, and it breaks up the torso.' },
-    ],
+    tint: '#2A2A2A',
+    tagline: 'Relaxed fits, clean trainers, no big logos.',
+    options: { Top: ['t_tee_black', 't_hoodie'], Bottom: ['b_cargo', 'b_jeans_black'], Shoes: ['s_white', 's_skate'], Layer: ['l_bomber', 'l_overshirt'], Accessory: ['a_beanie', 'a_cap', 'a_watch_steel'] },
+  },
+  'Date Night': {
+    tint: '#5E2230',
+    tagline: 'First dates and nights out.',
+    options: { Top: ['t_shirt_black', 't_polo_navy'], Bottom: ['b_jeans_black', 'b_jeans_dark', 'b_trousers'], Shoes: ['s_chelsea', 's_loafers', 's_white'], Layer: ['l_bomber', 'l_blazer', 'l_merino'], Accessory: ['a_scent', 'a_watch_leather'] },
   },
   Gym: {
-    Top: [
-      { name: 'Fitted training tee', colour: 'Black', hex: '#1E1E1E', fit: 'Athletic cut', price: 20, shop: 'Gymshark', why: 'Close fit through the chest and arms, room at the waist.' },
-      { name: 'Muscle-fit tee', colour: 'Stone', hex: '#BDB5A6', fit: 'Short sleeve, fitted', price: 22, shop: 'Gymshark', why: 'Short sleeve sits higher on the arm.' },
-    ],
-    Bottom: [
-      { name: '7-inch training shorts', colour: 'Charcoal', hex: '#333333', fit: 'Above the knee', price: 20, shop: 'Gymshark', why: 'Above the knee shows your legs and looks more athletic.' },
-      { name: 'Tapered joggers', colour: 'Black', hex: '#1C1C1C', fit: 'Tapered, cuffed', price: 30, shop: 'Nike', why: 'Clean enough to wear to and from the gym.' },
-    ],
-    Shoes: [
-      { name: 'Flat canvas trainers', colour: 'White', hex: '#F0F0EC', fit: 'Flat sole', price: 55, shop: 'Converse', why: 'Flat and stable for lifting, and they look good outside it.' },
-      { name: 'Running trainers', colour: 'Grey', hex: '#8E9296', fit: 'Cushioned', price: 70, shop: 'ASICS', why: 'If you do cardio, this is the one pair that does it all.' },
-    ],
-    Layer: [
-      { name: 'Quarter-zip', colour: 'Grey', hex: '#7D7F83', fit: 'Fitted', price: 35, shop: 'Gymshark', why: 'Warm-up layer that still shows your shape.' },
-      { name: 'Zip hoodie', colour: 'Navy', hex: '#1F2A44', fit: 'Regular', price: 30, shop: 'Uniqlo', why: 'Simple and it goes over anything.' },
-    ],
-    Accessory: [
-      { name: 'Plain cap', colour: 'Black', hex: '#1A1A1A', fit: 'Curved peak', price: 15, shop: 'Nike', why: 'Keeps it simple on a bad hair day.' },
-      { name: 'Holdall bag', colour: 'Black', hex: '#222222', fit: 'Medium', price: 25, shop: 'Decathlon', why: 'One tidy bag beats a rucksack stuffed with kit.' },
-    ],
-  },
-  Retro: {
-    Top: [
-      { name: 'Striped knit polo', colour: 'Cream and brown', hex: '#E8DDC4', fit: 'Regular', price: 28, shop: 'Vinted (used)', why: 'The easiest 70s nod that still looks wearable.' },
-      { name: 'Camp-collar shirt', colour: 'Mustard', hex: '#C9A13B', fit: 'Boxy, short sleeve', price: 25, shop: 'Vinted (used)', why: 'Open collar frames the neck and shoulders.' },
-    ],
-    Bottom: [
-      { name: 'Straight light-wash jeans', colour: 'Light blue', hex: '#8FA7C2', fit: 'Straight', price: 20, shop: 'Vinted (used)', why: 'Old denim fades better than new. Cheap secondhand.' },
-      { name: 'Wide-leg cords', colour: 'Brown', hex: '#6B4A2F', fit: 'Wide leg', price: 35, shop: 'ASOS', why: 'Texture and warmth, very on-trend right now.' },
-    ],
-    Shoes: [
-      { name: 'Low terrace trainers', colour: 'White and green', hex: '#EDEDE6', fit: 'Slim, low profile', price: 70, shop: 'Adidas', why: 'Slim retro trainers keep the whole outfit sharp.' },
-      { name: 'Penny loafers', colour: 'Oxblood', hex: '#5A1E1E', fit: 'Classic', price: 45, shop: 'Vinted (used)', why: 'Proper 60s energy, and they dress up denim.' },
-    ],
-    Layer: [
-      { name: 'Harrington jacket', colour: 'Navy', hex: '#243049', fit: 'Cropped at the waist', price: 45, shop: 'Vinted (used)', why: 'Short and clean, it lengthens the legs.' },
-      { name: 'Suede jacket', colour: 'Tan', hex: '#A57A4F', fit: 'Regular', price: 60, shop: 'Vinted (used)', why: 'The statement piece. Everything else stays quiet around it.' },
-    ],
-    Accessory: [
-      { name: 'Tinted sunglasses', colour: 'Brown tint', hex: '#6B4A2F', fit: 'Medium frame', price: 15, shop: 'ASOS', why: 'Pulls the whole retro thing together instantly.' },
-      { name: 'Thin chain', colour: 'Gold tone', hex: '#C9A13B', fit: 'Short', price: 15, shop: 'ASOS', why: 'Sits at the open collar. Small detail, big effect.' },
-    ],
-  },
-  Motorbike: {
-    Top: [
-      { name: 'Henley', colour: 'Charcoal', hex: '#3A3A3A', fit: 'Fitted', price: 25, shop: 'Uniqlo', why: 'Rugged but clean, shows the chest and shoulders.' },
-      { name: 'Flannel shirt', colour: 'Red check', hex: '#7A2E2A', fit: 'Regular', price: 30, shop: 'H&M', why: 'Classic garage look, works open over a tee.' },
-    ],
-    Bottom: [
-      { name: 'Black straight jeans', colour: 'Black', hex: '#1E1E1E', fit: 'Slim straight', price: 40, shop: "Levi's", why: 'Tough, clean, goes with the boots.' },
-      { name: 'Raw dark denim', colour: 'Deep indigo', hex: '#1E2536', fit: 'Slim straight', price: 60, shop: "Levi's", why: 'Fades to you over time. Looks better every month.' },
-    ],
-    Shoes: [
-      { name: 'Leather work boots', colour: 'Dark brown', hex: '#3E2717', fit: 'Chunky sole', price: 70, shop: 'Vinted (used)', why: 'The anchor of the look, and the sole adds height.' },
-      { name: 'Chelsea boots', colour: 'Black', hex: '#1A1A1A', fit: 'Slim', price: 65, shop: 'ASOS', why: 'Sleeker option that still says motorbike.' },
-    ],
-    Layer: [
-      { name: 'Leather jacket', colour: 'Black', hex: '#141414', fit: 'Cropped at the waist, fitted', price: 120, shop: 'Vinted (used)', why: 'The whole point. Secondhand leather already looks broken in.' },
-      { name: 'Waxed jacket', colour: 'Olive', hex: '#4A4B32', fit: 'Regular', price: 90, shop: 'Vinted (used)', why: 'British and practical, softer than full leather.' },
-    ],
-    Accessory: [
-      { name: 'Brass buckle belt', colour: 'Black', hex: '#1A1A1A', fit: '4cm width', price: 20, shop: 'ASOS', why: 'Heavy belt matches heavy boots.' },
-      { name: 'Bandana', colour: 'Navy', hex: '#243049', fit: 'Folded at the neck', price: 8, shop: 'ASOS', why: 'Cheap and it adds character.' },
-    ],
+    tint: '#3F5263',
+    tagline: 'Training, and looking good doing it.',
+    options: { Top: ['t_train', 't_muscle'], Bottom: ['b_shorts', 'b_joggers'], Shoes: ['s_flat', 's_run'], Layer: ['l_qzip', 'l_zip'], Accessory: ['a_cap', 'a_bag'] },
   },
 };
+
+const LOOK_ORDER = Object.keys(LOOKS);
 
 const BUILDS = ['Average', 'Shorter', 'Tall', 'Slim', 'Broad shoulders', 'Athletic', 'Carrying some weight'];
 
@@ -159,7 +106,7 @@ const BUILD_NOTES = {
     Top: 'Heavier fabric adds bulk where you want it.',
     Bottom: 'Straight rather than skinny so your legs don’t look thin.',
     Shoes: 'A bit of weight at the shoe balances a slim leg.',
-    Layer: 'Layering is your best friend. It adds width across the shoulders.',
+    Layer: 'Layering adds width across the shoulders.',
     Accessory: 'Keeps the eye moving across your frame.',
   },
   'Broad shoulders': {
@@ -180,26 +127,26 @@ const BUILD_NOTES = {
     Top: 'Structured fabric that skims instead of clinging.',
     Bottom: 'Darker colour and a straight leg slims the lower half.',
     Shoes: 'A solid shoe so your feet don’t look small under you.',
-    Layer: 'Worn open, it draws a long vertical line down the front.',
-    Accessory: 'A belt in a dark colour, not one that splits you in half.',
+    Layer: 'Worn open, it draws a long line down the front.',
+    Accessory: 'A dark belt, not one that splits you in half.',
   },
 };
 
 const GUIDE = {
   Average: [
-    'You can wear most cuts, so fit is what separates you. Tops end at the hip, trousers break just once at the shoe.',
-    'Build your outfits around one strong piece, a jacket or a pair of boots, and keep the rest simple.',
+    'You can wear most cuts, so fit is what separates you. Tops end at the hip, trousers break once at the shoe.',
+    'Build each outfit around one strong piece, a jacket or good shoes, and keep the rest simple.',
   ],
   Shorter: [
     'Wear the same colour or close shades top to bottom. One unbroken column reads taller.',
     'Keep jackets short, at the waist or just below.',
     'Get trousers hemmed so there is no stacking at the ankle.',
-    'Low-profile shoes with a small heel, or boots with a thicker sole, add height without looking obvious.',
+    'Boots with a slightly thicker sole add height without looking obvious.',
   ],
   Tall: [
     'Break up your height with contrast: a lighter top and darker trousers.',
     'Longer coats and hip-length layers suit you better than cropped ones.',
-    'Watch your sleeve and trouser length. Short hems are the giveaway on tall guys.',
+    'Watch your sleeve and trouser length. Short hems are the giveaway.',
   ],
   Slim: [
     'Layer. An overshirt or jumper over a tee adds width.',
@@ -208,18 +155,18 @@ const GUIDE = {
   ],
   'Broad shoulders': [
     'Avoid padded shoulders. You don’t need them.',
-    'V-necks and open collars break up a wide chest.',
+    'Open collars break up a wide chest.',
     'Give your trousers some room so your legs don’t look thin under a big top half.',
   ],
   Athletic: [
     'Fit is everything. Tops should fit your chest and taper at the waist.',
-    'Stretch fabrics in trousers stop the thigh pulling.',
-    'Avoid baggy tees. They hide the work you’ve put in.',
+    'Stretch in your trousers stops the thigh pulling.',
+    'Skip baggy tees. They hide the work you’ve put in.',
   ],
   'Carrying some weight': [
     'Darker colours and matte fabrics slim the frame.',
-    'Structure over stretch: an overshirt or jacket worn open creates a vertical line.',
-    'Avoid anything tight at the stomach or too big overall. Right size, not a size up.',
+    'An overshirt or jacket worn open creates a long vertical line.',
+    'Right size, not a size up. Too big makes you look bigger.',
   ],
 };
 

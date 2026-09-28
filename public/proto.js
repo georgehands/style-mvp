@@ -1,15 +1,24 @@
-const STORE_KEY = 'style-proto-v1';
+const STORE_KEY = 'style-proto-v2';
 const screen = document.getElementById('screen');
 const tabs = document.getElementById('tabs');
+const MONTHLY = { 'Under £50': 40, '£50–150': 100, '£150–300': 225, '£300+': 350 };
+const GOALS = ['Back on dating apps', 'Feel invisible', 'New job', 'Look put together', 'Just want a change'];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const money = (n) => `£${Math.round(n).toLocaleString('en-GB')}`;
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-let state = load() || { profile: null, picks: {}, owned: [], saved: [], lane: null };
+const blank = () => ({ profile: null, picks: {}, ownedIds: [], ownedManual: [], view: { tab: 'home', look: null } });
+let state = load() || blank();
+let onboarding = false;
 let draft = null;
 let step = 0;
 
 function load() {
-  try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch { return null; }
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE_KEY));
+    return s && s.view ? s : null;
+  } catch { return null; }
 }
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* storage unavailable, run in memory */ }
@@ -20,6 +29,9 @@ function toast(msg) {
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 1800);
+}
+function chip(label, on) {
+  return `<button type="button" class="chip${on ? ' on' : ''}" data-val="${esc(label)}">${esc(label)}</button>`;
 }
 
 // ---------- Onboarding ----------
@@ -32,7 +44,7 @@ const STEPS = [
       <label class="field">Height
         <input type="text" id="height" placeholder="e.g. 5'9 or 175cm" value="${esc(draft.height)}">
       </label>
-      <div class="field-label small">Pick any that sound like you</div>
+      <div class="label">Pick any that sound like you</div>
       <div class="chips" data-multi="flags">${BUILDS.map((b) => chip(b, draft.flags.includes(b))).join('')}</div>`,
     valid: () => draft.height.trim() && draft.flags.length,
   },
@@ -54,27 +66,38 @@ const STEPS = [
     valid: () => true,
   },
   {
-    title: 'What can you spend?',
-    sub: 'Every piece we pick has to fit inside this. No surprises.',
+    title: 'What’s your wardrobe budget?',
+    sub: 'The total you’re happy to spend across every look. We’ll tell you what to buy first.',
     render: () => `
-      <div class="small">Budget for one full outfit</div>
-      <div class="budget-val" id="budgetVal">£${draft.budget}</div>
-      <input type="range" id="budget" min="50" max="400" step="10" value="${draft.budget}">
-      <h2>Roughly what do you spend on clothes a month?</h2>
-      <div class="chips" data-single="monthly">${['Under £50', '£50–150', '£150–300', '£300+'].map((m) => chip(m, draft.monthly === m)).join('')}</div>`,
+      <div class="budget-card">
+        <div class="small">Whole wardrobe</div>
+        <div class="budget-val" id="budgetVal">${money(draft.budget)}</div>
+        <input type="range" id="budget" min="100" max="1000" step="25" value="${draft.budget}">
+        <div class="range-ends"><span>£100</span><span>£1,000</span></div>
+      </div>
+      <h2 class="q">And what do you usually spend on clothes a month?</h2>
+      <p class="small" style="margin:0 0 14px">So we can tell you when you’ll have the rest.</p>
+      <div class="chips" data-single="monthly">${Object.keys(MONTHLY).map((m) => chip(m, draft.monthly === m)).join('')}</div>`,
     valid: () => draft.monthly,
   },
   {
     title: 'Which looks do you want?',
-    sub: 'Pick as many as you like. You can switch between them any time.',
-    render: () => `<div class="chips" data-multi="lanes">${LANES.map((l) => chip(l, draft.lanes.includes(l))).join('')}</div>`,
+    sub: 'Pick as many as you like. Where a piece works in more than one look, you only buy it once.',
+    render: () => `
+      <div class="look-pick" data-multi="lanes">${LOOK_ORDER.map((l) => `
+        <button type="button" class="look-opt${draft.lanes.includes(l) ? ' on' : ''}" data-val="${esc(l)}" style="--tint:${LOOKS[l].tint}">
+          <span class="serif">${esc(l)}</span>
+          <span class="small">${esc(LOOKS[l].tagline)}</span>
+          <span class="tick"></span>
+        </button>`).join('')}
+      </div>`,
     valid: () => draft.lanes.length,
   },
   {
     title: 'What are you actually trying to change?',
     sub: 'Be honest. This shapes every choice.',
     render: () => `
-      <div class="chips" data-multi="goalTags">${['Back on dating apps', 'Feel invisible', 'New job', 'Look put together', 'Just want a change'].map((g) => chip(g, draft.goalTags.includes(g))).join('')}</div>
+      <div class="chips" data-multi="goalTags">${GOALS.map((g) => chip(g, draft.goalTags.includes(g))).join('')}</div>
       <label class="field">In your own words (optional)
         <textarea id="goal" rows="3" placeholder="e.g. I scroll and everyone looks sorted, I just feel average">${esc(draft.goal)}</textarea>
       </label>`,
@@ -82,14 +105,11 @@ const STEPS = [
   },
 ];
 
-function chip(label, on) {
-  return `<button type="button" class="chip${on ? ' on' : ''}" data-val="${esc(label)}">${esc(label)}</button>`;
-}
-
 function startOnboarding() {
+  onboarding = true;
   draft = state.profile
     ? structuredClone(state.profile)
-    : { height: '', flags: [], chest: '', waist: '', inseam: '', shoe: '', budget: 150, monthly: '', lanes: [], goalTags: [], goal: '' };
+    : { height: '', flags: [], chest: '', waist: '', inseam: '', shoe: '', budget: 300, monthly: '', lanes: [], goalTags: [], goal: '' };
   step = 0;
   tabs.classList.add('hidden');
   renderStep();
@@ -98,24 +118,27 @@ function startOnboarding() {
 function renderStep() {
   const s = STEPS[step];
   screen.innerHTML = `
-    <div class="progress">${STEPS.map((_, i) => `<span class="${i <= step ? 'on' : ''}"></span>`).join('')}</div>
-    <h1>${s.title}</h1>
-    <p class="sub">${s.sub}</p>
-    ${s.render()}
-    <div class="actions">
-      ${step > 0 ? '<button class="btn ghost" id="back">Back</button>' : ''}
-      <button class="btn" id="next">${step === STEPS.length - 1 ? 'Build my look' : 'Next'}</button>
+    <div class="onb">
+      <div class="progress">${STEPS.map((_, i) => `<span class="${i <= step ? 'on' : ''}"></span>`).join('')}</div>
+      <div class="stepcount">Step ${step + 1} of ${STEPS.length}</div>
+      <h1 class="serif">${s.title}</h1>
+      <p class="sub">${s.sub}</p>
+      ${s.render()}
+      <div class="actions">
+        ${step > 0 ? '<button class="btn ghost" id="back">Back</button>' : ''}
+        <button class="btn" id="next">${step === STEPS.length - 1 ? 'Build my wardrobe' : 'Next'}</button>
+      </div>
     </div>`;
 
-  screen.querySelectorAll('input[type=text], textarea').forEach((el) => {
+  screen.querySelectorAll('input[type=text]:not([disabled]), textarea').forEach((el) => {
     el.addEventListener('input', () => { draft[el.id] = el.value; refreshNext(); });
   });
   const range = screen.querySelector('#budget');
-  if (range) range.addEventListener('input', () => { draft.budget = +range.value; screen.querySelector('#budgetVal').textContent = `£${draft.budget}`; });
+  if (range) range.addEventListener('input', () => { draft.budget = +range.value; screen.querySelector('#budgetVal').textContent = money(draft.budget); });
 
-  screen.querySelectorAll('.chips').forEach((group) => {
+  screen.querySelectorAll('[data-multi], [data-single]').forEach((group) => {
     group.addEventListener('click', (e) => {
-      const btn = e.target.closest('.chip');
+      const btn = e.target.closest('[data-val]');
       if (!btn) return;
       const val = btn.dataset.val;
       if (group.dataset.multi) {
@@ -125,7 +148,7 @@ function renderStep() {
         btn.classList.toggle('on');
       } else {
         draft[group.dataset.single] = val;
-        group.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c === btn));
+        group.querySelectorAll('[data-val]').forEach((c) => c.classList.toggle('on', c === btn));
       }
       refreshNext();
     });
@@ -134,7 +157,7 @@ function renderStep() {
   const back = screen.querySelector('#back');
   if (back) back.onclick = () => { step--; renderStep(); };
   screen.querySelector('#next').onclick = () => {
-    if (step < STEPS.length - 1) { step++; renderStep(); return; }
+    if (step < STEPS.length - 1) { step++; renderStep(); window.scrollTo(0, 0); return; }
     finishOnboarding();
   };
   refreshNext();
@@ -145,87 +168,103 @@ function refreshNext() {
 }
 
 function finishOnboarding() {
+  onboarding = false;
   state.profile = draft;
-  state.picks = {};
-  state.lane = draft.lanes[0];
+  state.view = { tab: 'home', look: null };
   save();
   screen.innerHTML = `
     <div class="loader">
       <div><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-      <p class="sub" style="margin-top:20px">Reading your build and budget…</p>
+      <p class="sub" style="margin-top:20px">Building your wardrobe around your build and budget…</p>
     </div>`;
-  setTimeout(() => showTab('outfit'), 1400);
+  setTimeout(render, 1400);
 }
 
-// ---------- Outfit engine (stand-in for the AI) ----------
+// ---------- Wardrobe engine (stand-in for the AI) ----------
 
-function ownedFor(lane, slot) {
-  return state.owned.find((o) => o.lane === lane && o.slot === slot);
+// Keep each look on its signature pieces unless sharing finishes more complete looks within budget.
+function plan() {
+  const signature = evaluate(false);
+  if (!signature.later.length) return signature;
+  const shared = evaluate(true);
+  return shared.ready.length > signature.ready.length ? shared : signature;
 }
 
-function buildOutfit(lane) {
-  const picks = state.picks[lane] || {};
-  const budget = state.profile.budget;
-  const chosen = {};
+function evaluate(share) {
+  const p = state.profile;
+  const owned = new Set(state.ownedIds);
+  const looks = {};
+  const usage = {};
+  const cost = (ids) => ids.reduce((sum, id) => sum + ITEMS[id].price, 0);
 
-  SLOTS.forEach((slot) => {
-    const own = ownedFor(lane, slot);
-    if (own) { chosen[slot] = { item: own, owned: true }; return; }
-    chosen[slot] = { idx: picks[slot] ?? 0, locked: picks[slot] !== undefined };
-  });
+  // Each look starts on its signature pieces (or anything he owns).
+  const choice = [];
+  p.lanes.forEach((lane) => SLOTS.forEach((slot) => {
+    if (state.ownedManual.some((o) => o.slot === slot && o.lanes.includes(lane))) return;
+    const opts = LOOKS[lane].options[slot];
+    const pick = state.picks[lane]?.[slot];
+    const locked = opts.includes(pick);
+    choice.push({ lane, slot, locked, id: locked ? pick : opts.find((o) => owned.has(o)) || opts[0] });
+  }));
 
-  // Squeeze into budget by switching unlocked slots to their cheaper option.
-  const total = () => SLOTS.reduce((sum, s) => sum + (chosen[s].owned ? 0 : CATALOGUE[lane][s][chosen[s].idx].price), 0);
-  let guard = 10;
-  while (total() > budget && guard--) {
+  // Share pieces between looks, biggest saving first, until it fits or nothing more can be shared.
+  const total = () => cost([...new Set(choice.map((c) => c.id))].filter((id) => !owned.has(id)));
+  for (let guard = 0; share && guard < 30 && total() > p.budget; guard++) {
     let best = null;
-    SLOTS.forEach((s) => {
-      const c = chosen[s];
-      if (c.owned || c.locked) return;
-      CATALOGUE[lane][s].forEach((opt, i) => {
-        const saving = CATALOGUE[lane][s][c.idx].price - opt.price;
-        if (saving > 0 && (!best || saving > best.saving)) best = { s, i, saving };
+    const before = total();
+    choice.filter((c) => !c.locked).forEach((c) => {
+      LOOKS[c.lane].options[c.slot].forEach((opt) => {
+        if (opt === c.id || !(owned.has(opt) || choice.some((o) => o !== c && o.id === opt))) return;
+        const was = c.id;
+        c.id = opt;
+        const saving = before - total();
+        c.id = was;
+        if (saving > 0 && (!best || saving > best.saving)) best = { c, opt, saving };
       });
     });
     if (!best) break;
-    chosen[best.s].idx = best.i;
+    best.c.id = best.opt;
   }
 
-  SLOTS.forEach((s) => {
-    if (!chosen[s].owned) chosen[s].item = CATALOGUE[lane][s][chosen[s].idx];
+  p.lanes.forEach((lane) => {
+    looks[lane] = {};
+    SLOTS.forEach((slot) => {
+      const manual = state.ownedManual.find((o) => o.slot === slot && o.lanes.includes(lane));
+      if (manual) { looks[lane][slot] = { item: manual, owned: true, manual: true }; return; }
+      const c = choice.find((x) => x.lane === lane && x.slot === slot);
+      (usage[c.id] ||= new Set()).add(lane);
+      looks[lane][slot] = { id: c.id, item: ITEMS[c.id], owned: owned.has(c.id), locked: c.locked };
+    });
   });
-  return { pieces: chosen, total: total() };
-}
 
-function avatarSVG(outfit) {
-  const p = state.profile;
-  const flags = p.flags;
-  const inches = parseHeight(p.height);
-  const f = Math.min(1.1, Math.max(0.88, inches / 70));
-  let sw = 46, ww = 34;
-  if (flags.includes('Broad shoulders')) sw += 10;
-  if (flags.includes('Athletic')) { sw += 6; ww -= 2; }
-  if (flags.includes('Slim')) { sw -= 4; ww -= 3; }
-  if (flags.includes('Carrying some weight')) { sw += 4; ww += 10; }
+  // Buy order: finish whole looks first, in the order he picked them, then the most-shared pieces.
+  const now = new Set();
+  let spent = 0;
+  p.lanes.forEach((lane) => {
+    const need = [...new Set(SLOTS.map((s) => looks[lane][s]).filter((x) => !x.owned && !now.has(x.id)).map((x) => x.id))];
+    if (spent + cost(need) <= p.budget) { need.forEach((id) => now.add(id)); spent += cost(need); }
+  });
+  const later = [];
+  Object.keys(usage)
+    .filter((id) => !owned.has(id) && !now.has(id))
+    .sort((a, b) => usage[b].size - usage[a].size || ITEMS[a].price - ITEMS[b].price)
+    .forEach((id) => {
+      if (spent + ITEMS[id].price <= p.budget) { now.add(id); spent += ITEMS[id].price; } else later.push(id);
+    });
 
-  const col = (s) => outfit.pieces[s].item.hex;
-  const base = 250, shoeH = 8, legH = 100 * f, torsoH = 72 * f;
-  const legTop = base - shoeH - legH, torsoTop = legTop - torsoH, headR = 14, headCy = torsoTop - 6 - headR;
-  const L = 60 - sw / 2, R = 60 + sw / 2, wl = 60 - ww / 2, wr = 60 + ww / 2;
-
-  return `<svg viewBox="0 0 120 260" aria-label="Avatar preview">
-    <circle cx="60" cy="${headCy}" r="${headR}" fill="#cfc8bd"/>
-    <rect x="${L - 10}" y="${torsoTop + 2}" width="10" height="${torsoH + 8}" rx="5" fill="${col('Layer')}"/>
-    <rect x="${R}" y="${torsoTop + 2}" width="10" height="${torsoH + 8}" rx="5" fill="${col('Layer')}"/>
-    <circle cx="${L - 5}" cy="${torsoTop + torsoH + 4}" r="3.5" fill="${col('Accessory')}"/>
-    <polygon points="${L},${torsoTop} ${R},${torsoTop} ${wr},${legTop} ${wl},${legTop}" fill="${col('Top')}" stroke="rgba(0,0,0,.12)"/>
-    <polygon points="${L},${torsoTop} ${L + sw * 0.3},${torsoTop} ${wl + ww * 0.25},${legTop} ${wl},${legTop}" fill="${col('Layer')}"/>
-    <polygon points="${R - sw * 0.3},${torsoTop} ${R},${torsoTop} ${wr},${legTop} ${wr - ww * 0.25},${legTop}" fill="${col('Layer')}"/>
-    <rect x="${wl}" y="${legTop}" width="${ww / 2 - 1}" height="${legH}" fill="${col('Bottom')}" stroke="rgba(0,0,0,.12)"/>
-    <rect x="61" y="${legTop}" width="${ww / 2 - 1}" height="${legH}" fill="${col('Bottom')}" stroke="rgba(0,0,0,.12)"/>
-    <rect x="${wl - 3}" y="${base - shoeH}" width="${ww / 2 + 2}" height="${shoeH}" rx="3" fill="${col('Shoes')}" stroke="rgba(0,0,0,.2)"/>
-    <rect x="60" y="${base - shoeH}" width="${ww / 2 + 2}" height="${shoeH}" rx="3" fill="${col('Shoes')}" stroke="rgba(0,0,0,.2)"/>
-  </svg>`;
+  const remaining = (lane) => cost([...new Set(SLOTS.map((s) => looks[lane][s]).filter((x) => !x.owned && !now.has(x.id)).map((x) => x.id))]);
+  return {
+    looks,
+    usage,
+    now,
+    later,
+    spent,
+    laterTotal: cost(later),
+    remaining,
+    ready: p.lanes.filter((l) => remaining(l) === 0),
+    shared: Object.keys(usage).filter((id) => usage[id].size > 1).length,
+    pieceCount: Object.keys(usage).length + state.ownedManual.filter((o) => o.lanes.some((l) => p.lanes.includes(l))).length,
+  };
 }
 
 function parseHeight(h) {
@@ -237,191 +276,320 @@ function parseHeight(h) {
   return 70;
 }
 
-// ---------- Screens ----------
+function avatarSVG(pieces) {
+  const flags = state.profile.flags;
+  const f = Math.min(1.1, Math.max(0.88, parseHeight(state.profile.height) / 70));
+  let sw = 46;
+  let ww = 34;
+  if (flags.includes('Broad shoulders')) sw += 10;
+  if (flags.includes('Athletic')) { sw += 6; ww -= 2; }
+  if (flags.includes('Slim')) { sw -= 4; ww -= 3; }
+  if (flags.includes('Carrying some weight')) { sw += 4; ww += 10; }
 
-function renderOutfit() {
-  const p = state.profile;
-  const lane = state.lane;
-  const outfit = buildOutfit(lane);
-  const over = outfit.total > p.budget;
-  const pct = Math.min(100, (outfit.total / p.budget) * 100);
-  const ownedCount = SLOTS.filter((s) => outfit.pieces[s].owned).length;
+  const col = (s) => esc(pieces[s].item.hex);
+  const base = 250, shoeH = 8, legH = 100 * f, torsoH = 72 * f;
+  const legTop = base - shoeH - legH;
+  const torsoTop = legTop - torsoH;
+  const headR = 14;
+  const headCy = torsoTop - 6 - headR;
+  const L = 60 - sw / 2, R = 60 + sw / 2, wl = 60 - ww / 2, wr = 60 + ww / 2;
+  const edge = 'rgba(0,0,0,.14)';
 
-  screen.innerHTML = `
-    <div class="lanes">${p.lanes.map((l) => chip(l, l === lane)).join('')}</div>
-    <h1>Your ${esc(lane.toLowerCase())} look.</h1>
-    <p class="sub">${ownedCount ? `Built around ${ownedCount} piece${ownedCount > 1 ? 's' : ''} you already own.` : 'One outfit. Picked for your build and your budget.'}</p>
-    <div class="hero">
-      ${avatarSVG(outfit)}
-      <div class="summary">
-        <div class="small">Total to buy</div>
-        <div class="total">£${outfit.total}</div>
-        <div class="bar${over ? ' over' : ''}"><span style="width:${pct}%"></span></div>
-        <div class="small">${!over ? `Inside your £${p.budget} budget.` : SLOTS.some((s) => outfit.pieces[s].locked)
-          ? `£${outfit.total - p.budget} over your £${p.budget}. Swap a piece back or mark something you own.`
-          : `This is the cheapest version of this look, £${outfit.total - p.budget} over your £${p.budget}. Mark anything you already own to bring it down.`}</div>
-        <div class="note">Avatar is a stand-in for the real try-on.</div>
-      </div>
-    </div>
-    ${SLOTS.map((slot) => pieceCard(slot, outfit.pieces[slot])).join('')}
-    <div class="ask">
-      <input type="text" disabled placeholder="Ask the stylist: e.g. no boots, something darker">
-      <button class="btn" disabled>Send</button>
-    </div>
-    <p class="note">Free-text changes arrive when the real AI is connected. Prices shown are samples.</p>
-    <div class="actions"><button class="btn" id="saveOutfit">Save this outfit</button></div>`;
-
-  screen.querySelector('.lanes').onclick = (e) => {
-    const b = e.target.closest('.chip');
-    if (!b) return;
-    state.lane = b.dataset.val; save(); renderOutfit();
-  };
-  screen.querySelectorAll('[data-swap]').forEach((b) => (b.onclick = () => swap(lane, b.dataset.swap)));
-  screen.querySelectorAll('[data-own]').forEach((b) => (b.onclick = () => toggleOwn(lane, b.dataset.own, outfit)));
-  screen.querySelector('#saveOutfit').onclick = () => {
-    state.saved.unshift({
-      lane,
-      date: new Date().toLocaleDateString('en-GB'),
-      total: outfit.total,
-      pieces: SLOTS.map((s) => ({ slot: s, name: outfit.pieces[s].item.name, hex: outfit.pieces[s].item.hex })),
-    });
-    save(); toast('Saved to your wardrobe');
-  };
+  return `<svg viewBox="0 0 120 260" aria-label="Avatar preview">
+    <rect x="55" y="${headCy + headR - 2}" width="10" height="10" fill="#bdb5a8"/>
+    <circle cx="60" cy="${headCy}" r="${headR}" fill="#cfc8bd"/>
+    <rect x="${L - 10}" y="${torsoTop + 2}" width="10" height="${torsoH + 8}" rx="5" fill="${col('Layer')}" stroke="${edge}"/>
+    <rect x="${R}" y="${torsoTop + 2}" width="10" height="${torsoH + 8}" rx="5" fill="${col('Layer')}" stroke="${edge}"/>
+    <circle cx="${L - 5}" cy="${torsoTop + torsoH + 4}" r="3.5" fill="${col('Accessory')}"/>
+    <polygon points="${L},${torsoTop} ${R},${torsoTop} ${wr},${legTop} ${wl},${legTop}" fill="${col('Top')}" stroke="${edge}"/>
+    <polygon points="${L},${torsoTop} ${L + sw * 0.3},${torsoTop} ${wl + ww * 0.25},${legTop} ${wl},${legTop}" fill="${col('Layer')}" stroke="${edge}"/>
+    <polygon points="${R - sw * 0.3},${torsoTop} ${R},${torsoTop} ${wr},${legTop} ${wr - ww * 0.25},${legTop}" fill="${col('Layer')}" stroke="${edge}"/>
+    <rect x="${wl}" y="${legTop}" width="${ww / 2 - 1}" height="${legH}" fill="${col('Bottom')}" stroke="${edge}"/>
+    <rect x="61" y="${legTop}" width="${ww / 2 - 1}" height="${legH}" fill="${col('Bottom')}" stroke="${edge}"/>
+    <rect x="${wl - 3}" y="${base - shoeH}" width="${ww / 2 + 2}" height="${shoeH}" rx="3" fill="${col('Shoes')}" stroke="rgba(0,0,0,.25)"/>
+    <rect x="60" y="${base - shoeH}" width="${ww / 2 + 2}" height="${shoeH}" rx="3" fill="${col('Shoes')}" stroke="rgba(0,0,0,.25)"/>
+  </svg>`;
 }
 
-function pieceCard(slot, piece) {
-  const it = piece.item;
-  const notes = state.profile.flags.map((f) => BUILD_NOTES[f]?.[slot]).filter(Boolean);
+// ---------- Screens ----------
+
+function renderHome() {
+  const p = state.profile;
+  const pl = plan();
+  const unused = LOOK_ORDER.filter((l) => !p.lanes.includes(l));
+  const pct = Math.min(100, (pl.spent / p.budget) * 100);
+  const readyLine = pl.ready.length
+    ? `Your buy-now list finishes <b>${pl.ready.length} of ${p.lanes.length}</b> looks.`
+    : 'Your budget doesn’t finish a full look yet, so this starts with the pieces that work hardest.';
+  const sharedLine = pl.shared ? ` <b>${plural(pl.shared, 'piece')}</b> ${pl.shared === 1 ? 'works' : 'work'} across more than one look.` : '';
+
+  screen.innerHTML = `
+    <header class="top">
+      <div class="overline">Your wardrobe</div>
+      <h1 class="serif">${plural(p.lanes.length, 'look')}, ${plural(pl.pieceCount, 'piece')}.</h1>
+    </header>
+    <section class="plan">
+      <div class="plan-row">
+        <div><div class="k">Budget</div><div class="v">${money(p.budget)}</div></div>
+        <div><div class="k">Buy now</div><div class="v">${money(pl.spent)}</div></div>
+      </div>
+      <div class="bar"><span style="width:${pct}%"></span></div>
+      <p>${readyLine}${sharedLine}</p>
+      <button class="btn light" data-go="shop">See what to buy first</button>
+    </section>
+    <h2 class="section">Your looks</h2>
+    <div class="grid">${p.lanes.map((l) => tile(l, pl)).join('')}</div>
+    ${unused.length ? `<h2 class="section">Add a look</h2>
+      <div class="chips">${unused.map((l) => `<button class="chip add" data-add="${esc(l)}">+ ${esc(l)}</button>`).join('')}</div>` : ''}`;
+}
+
+function tile(lane, pl) {
+  const pieces = pl.looks[lane];
+  const left = pl.remaining(lane);
   return `
-    <div class="piece">
+    <button class="tile" data-look="${esc(lane)}" style="--tint:${LOOKS[lane].tint}">
+      <div class="tile-head">
+        <span class="tile-name serif">${esc(lane)}</span>
+        <span class="pill${left === 0 ? ' ok' : ''}">${left === 0 ? 'Ready' : `+${money(left)}`}</span>
+      </div>
+      <div class="tile-fig">${avatarSVG(pieces)}</div>
+      <div class="tile-tag">${esc(LOOKS[lane].tagline)}</div>
+      <div class="strip">${SLOTS.map((s) => `<span style="background:${esc(pieces[s].item.hex)}"></span>`).join('')}</div>
+    </button>`;
+}
+
+function renderLook(lane) {
+  const pl = plan();
+  const pieces = pl.looks[lane];
+  const left = pl.remaining(lane);
+  screen.innerHTML = `
+    <section class="look-hero" style="--tint:${LOOKS[lane].tint}">
+      <button class="back" data-back>‹ Wardrobe</button>
+      <div class="look-hero-body">
+        <div class="look-hero-text">
+          <div class="overline">Your look</div>
+          <h1 class="serif">${esc(lane)}</h1>
+          <p>${esc(LOOKS[lane].tagline)}</p>
+          <span class="pill${left === 0 ? ' ok' : ''}">${left === 0 ? 'Covered by your buy-now list' : `${money(left)} more to finish`}</span>
+        </div>
+        <div class="look-fig">${avatarSVG(pieces)}</div>
+      </div>
+    </section>
+    ${SLOTS.map((s) => pieceCard(lane, s, pieces[s], pl)).join('')}
+    <div class="ask">
+      <input type="text" disabled placeholder="Ask the stylist: no boots, something darker…">
+      <button class="btn" disabled>Send</button>
+    </div>
+    <p class="note">Free-text changes arrive once the real AI is connected. Prices are samples.</p>
+    ${state.profile.lanes.length > 1 ? `<button class="btn ghost drop" data-drop="${esc(lane)}">Remove this look</button>` : ''}`;
+}
+
+function pieceCard(lane, slot, x, pl) {
+  const it = x.item;
+  const status = x.owned ? ['owned', 'You own this'] : pl.now.has(x.id) ? ['now', 'Buy now'] : ['later', 'Buy later'];
+  const also = x.manual ? [] : [...pl.usage[x.id]].filter((l) => l !== lane);
+  const notes = state.profile.flags.map((f) => BUILD_NOTES[f]?.[slot]).filter(Boolean);
+  const canSwap = !x.manual && LOOKS[lane].options[slot].length > 1;
+  return `
+    <article class="piece">
       <div class="piece-head">
         <div class="swatch" style="background:${esc(it.hex)}"></div>
         <div class="meta">
           <div class="slot">${slot}</div>
           <div class="name">${esc(it.name)}</div>
-          <div class="small">${esc(it.colour)}${it.fit ? ` · ${esc(it.fit)}` : ''}${it.shop ? ` · ${esc(it.shop)}` : ''}</div>
+          <div class="small">${[it.colour, it.fit, it.shop].filter(Boolean).map(esc).join(' · ')}</div>
         </div>
-        ${piece.owned ? '<div class="price owned">You own this</div>' : `<div class="price">£${it.price}</div>`}
+        <div class="right">
+          ${x.owned ? '' : `<div class="price">${money(it.price)}</div>`}
+          <span class="badge ${status[0]}">${status[1]}</span>
+        </div>
       </div>
       ${it.why ? `<p class="why">${esc(it.why)}</p>` : ''}
       ${notes.map((n) => `<p class="why build">For your build: ${esc(n)}</p>`).join('')}
-      <div class="piece-actions">
-        ${piece.owned ? '' : `<button data-swap="${slot}">Swap</button>`}
-        <button data-own="${slot}" class="${piece.owned ? 'on' : ''}">${piece.owned ? 'Owned ✓' : 'I own something like this'}</button>
+      ${also.length ? `<p class="also">Also in ${also.map((l) => `<span class="dot" style="background:${LOOKS[l].tint}"></span>${esc(l)}`).join(', ')}</p>` : ''}
+      ${x.manual ? '' : `<div class="piece-actions">
+        ${canSwap ? `<button data-swap="${slot}">Swap</button>` : ''}
+        <button data-own="${slot}" class="${x.owned ? 'on' : ''}">${x.owned ? 'Owned ✓' : 'I own something like this'}</button>
+      </div>`}
+    </article>`;
+}
+
+function renderShop() {
+  const p = state.profile;
+  const pl = plan();
+  const months = Math.ceil(pl.laterTotal / (MONTHLY[p.monthly] || 100));
+  screen.innerHTML = `
+    <header class="top">
+      <div class="overline">Shopping list</div>
+      <h1 class="serif">What to buy, in order.</h1>
+      <p class="sub">Everything under “Buy now” fits your ${money(p.budget)}. Whole looks come first, then the pieces that work hardest.</p>
+    </header>
+    <section class="card">
+      <div class="list-head"><span>Buy now</span><span class="v">${money(pl.spent)}</span></div>
+      ${pl.now.size ? [...pl.now].map((id) => shopRow(id, pl)).join('') : '<div class="empty">Nothing fits yet. Raise your budget or mark pieces you own.</div>'}
+    </section>
+    ${pl.later.length ? `
+      <section class="card later">
+        <div class="list-head"><span>Buy later</span><span class="v">${money(pl.laterTotal)}</span></div>
+        <div class="meta-line">About ${plural(months, 'month')} at what you usually spend.</div>
+        ${pl.later.map((id) => shopRow(id, pl)).join('')}
+      </section>` : '<p class="note">That’s everything. Every look is covered.</p>'}`;
+}
+
+function shopRow(id, pl) {
+  const it = ITEMS[id];
+  return `
+    <div class="row-item">
+      <div class="swatch" style="background:${esc(it.hex)}"></div>
+      <div class="meta">
+        <div class="name">${esc(it.name)}</div>
+        <div class="small">${esc(it.colour)} · ${esc(it.shop)}</div>
+        <div class="uses">${[...pl.usage[id]].map((l) => `<span><span class="dot" style="background:${LOOKS[l].tint}"></span>${esc(l)}</span>`).join('')}</div>
       </div>
+      <div class="price">${money(it.price)}</div>
     </div>`;
 }
 
-function swap(lane, slot) {
-  const current = buildOutfit(lane).pieces[slot].idx;
-  state.picks[lane] = state.picks[lane] || {};
-  state.picks[lane][slot] = (current + 1) % CATALOGUE[lane][slot].length;
-  save(); renderOutfit();
-}
-
-function toggleOwn(lane, slot, outfit) {
-  const existing = ownedFor(lane, slot);
-  if (existing) {
-    state.owned = state.owned.filter((o) => o !== existing);
-  } else {
-    const it = outfit.pieces[slot].item;
-    state.owned.push({ lane, slot, name: it.name, colour: it.colour, hex: it.hex, why: 'Already in your wardrobe, so it stays in.' });
-  }
-  save(); renderOutfit();
-}
-
-function renderWardrobe() {
+function renderOwned() {
+  const p = state.profile;
+  const rows = [
+    ...state.ownedIds.map((id) => ({ key: `id:${id}`, name: ITEMS[id].name, hex: ITEMS[id].hex, sub: `${ITEMS[id].slot} · ${ITEMS[id].colour}` })),
+    ...state.ownedManual.map((o, i) => ({ key: `m:${i}`, name: o.name, hex: o.hex, sub: `${o.slot} · ${o.lanes.join(', ')}` })),
+  ];
   screen.innerHTML = `
-    <h1>Your wardrobe.</h1>
-    <p class="sub">Anything here gets built into your outfits instead of bought again.</p>
-    <h2>Pieces you own</h2>
-    <div id="ownedList">${state.owned.length ? state.owned.map((o, i) => `
-      <div class="list-item">
-        <div class="swatch" style="background:${esc(o.hex)}"></div>
-        <div class="meta"><div class="name">${esc(o.name)}</div><div class="small">${esc(o.slot)} · ${esc(o.lane)}</div></div>
-        <button data-remove="${i}">Remove</button>
-      </div>`).join('') : '<div class="empty">Nothing yet. Tap “I own something like this” on any piece, or add one below.</div>'}</div>
-    <h2>Add something you own</h2>
-    <label class="field">What is it<input type="text" id="addName" placeholder="e.g. Black jeans"></label>
-    <div class="row">
-      <label class="field">Type<select id="addSlot">${SLOTS.map((s) => `<option>${s}</option>`).join('')}</select></label>
-      <label class="field">Goes with<select id="addLane">${state.profile.lanes.map((l) => `<option>${esc(l)}</option>`).join('')}</select></label>
-    </div>
-    <label class="field">Colour<input type="text" id="addColour" placeholder="e.g. Black"></label>
-    <button class="btn" id="addBtn">Add to wardrobe</button>
-    <h2>Saved outfits</h2>
-    ${state.saved.length ? state.saved.map((o) => `
-      <div class="list-item">
-        <div style="display:flex;gap:3px">${o.pieces.map((p) => `<div class="swatch" style="width:14px;height:34px;flex-basis:14px;background:${esc(p.hex)}"></div>`).join('')}</div>
-        <div class="meta"><div class="name">${esc(o.lane)} look</div><div class="small">${esc(o.date)} · £${o.total}</div></div>
-      </div>`).join('') : '<div class="empty">No saved outfits yet.</div>'}`;
+    <header class="top">
+      <div class="overline">Owned</div>
+      <h1 class="serif">What you already have.</h1>
+      <p class="sub">Anything here gets worked into your looks instead of bought again.</p>
+    </header>
+    <section class="card">
+      ${rows.length ? rows.map((r) => `
+        <div class="row-item">
+          <div class="swatch" style="background:${esc(r.hex)}"></div>
+          <div class="meta"><div class="name">${esc(r.name)}</div><div class="small">${esc(r.sub)}</div></div>
+          <button class="link" data-remove="${esc(r.key)}">Remove</button>
+        </div>`).join('') : '<div class="empty">Nothing yet. Tap “I own something like this” on any piece, or add one below.</div>'}
+    </section>
+    <h2 class="section">Add a piece</h2>
+    <section class="card pad">
+      <label class="field">What is it<input type="text" id="addName" placeholder="e.g. Black jeans"></label>
+      <div class="row">
+        <label class="field">Type<select id="addSlot">${SLOTS.map((s) => `<option>${s}</option>`).join('')}</select></label>
+        <label class="field">Colour<input type="text" id="addColour" placeholder="e.g. Black"></label>
+      </div>
+      <div class="label">Works in</div>
+      <div class="chips" id="addLanes">${p.lanes.map((l) => chip(l, false)).join('')}</div>
+      <button class="btn" id="addBtn">Add to wardrobe</button>
+    </section>`;
+}
 
-  screen.querySelectorAll('[data-remove]').forEach((b) => (b.onclick = () => {
-    state.owned.splice(+b.dataset.remove, 1); save(); renderWardrobe();
-  }));
-  screen.querySelector('#addBtn').onclick = () => {
-    const name = screen.querySelector('#addName').value.trim();
-    if (!name) return;
-    const slot = screen.querySelector('#addSlot').value;
-    const lane = screen.querySelector('#addLane').value;
-    const colour = screen.querySelector('#addColour').value.trim() || 'Your colour';
-    state.owned = state.owned.filter((o) => !(o.lane === lane && o.slot === slot));
-    state.owned.push({ lane, slot, name, colour, hex: colourHex(colour), why: 'Already in your wardrobe, so it stays in.' });
-    save(); toast('Added. Your outfit will use it.'); renderWardrobe();
-  };
+function renderYou() {
+  const p = state.profile;
+  const kv = (k, v) => `<div class="kv"><span>${k}</span><span>${esc(v || '—')}</span></div>`;
+  screen.innerHTML = `
+    <header class="top">
+      <div class="overline">You</div>
+      <h1 class="serif">Dressing your build.</h1>
+      <p class="sub">The rules that matter for you, and nothing else.</p>
+    </header>
+    ${p.flags.map((f) => `<h2 class="section">${esc(f)}</h2><ul class="tips">${GUIDE[f].map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`).join('')}
+    <h2 class="section">For everyone</h2>
+    <ul class="tips">${GENERAL_GUIDE.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+    <h2 class="section">Your answers</h2>
+    <section class="card">
+      ${kv('Height', p.height)}
+      ${kv('Build', p.flags.join(', '))}
+      ${kv('Sizes', [p.chest && `Chest ${p.chest}`, p.waist && `Waist ${p.waist}`, p.inseam && `Leg ${p.inseam}`, p.shoe && `Shoe ${p.shoe}`].filter(Boolean).join(' · '))}
+      ${kv('Wardrobe budget', money(p.budget))}
+      ${kv('Monthly spend', p.monthly)}
+      ${kv('Goal', [...p.goalTags, p.goal].filter(Boolean).join(' · '))}
+    </section>
+    <div class="actions"><button class="btn" id="redo">Edit my answers</button></div>
+    <div class="actions"><button class="btn ghost" id="reset" style="flex:1">Start over from scratch</button></div>`;
+}
+
+// ---------- Actions ----------
+
+function swap(lane, slot) {
+  const opts = LOOKS[lane].options[slot];
+  const current = plan().looks[lane][slot].id;
+  (state.picks[lane] ||= {})[slot] = opts[(opts.indexOf(current) + 1) % opts.length];
+  save(); render();
+}
+
+function toggleOwn(lane, slot) {
+  const id = plan().looks[lane][slot].id;
+  if (state.ownedIds.includes(id)) {
+    state.ownedIds = state.ownedIds.filter((o) => o !== id);
+  } else {
+    state.ownedIds.push(id);
+    toast('Marked as owned in every look');
+  }
+  save(); render();
+}
+
+function removeOwned(key) {
+  const [kind, val] = key.split(':');
+  if (kind === 'id') state.ownedIds = state.ownedIds.filter((o) => o !== val);
+  else state.ownedManual.splice(+val, 1);
+  save(); render();
+}
+
+function addOwned() {
+  const name = screen.querySelector('#addName').value.trim();
+  const lanes = [...screen.querySelectorAll('#addLanes .chip.on')].map((c) => c.dataset.val);
+  if (!name || !lanes.length) { toast('Add a name and pick at least one look'); return; }
+  const slot = screen.querySelector('#addSlot').value;
+  const colour = screen.querySelector('#addColour').value.trim() || 'Your colour';
+  state.ownedManual.forEach((o) => { if (o.slot === slot) o.lanes = o.lanes.filter((l) => !lanes.includes(l)); });
+  state.ownedManual = state.ownedManual.filter((o) => o.lanes.length);
+  state.ownedManual.push({ slot, lanes, name, colour, hex: colourHex(colour), why: 'Already in your wardrobe, so it stays in.' });
+  save(); toast('Added. Your looks will use it.'); render();
 }
 
 function colourHex(name) {
   const probe = document.createElement('span');
   probe.style.color = name.toLowerCase().replace(/\s+/g, '');
-  return probe.style.color ? probe.style.color : '#b9b3a8';
+  return probe.style.color || '#b9b3a8';
 }
 
-function renderGuide() {
-  const flags = state.profile.flags;
-  screen.innerHTML = `
-    <h1>Dressing your build.</h1>
-    <p class="sub">The rules that matter for you, and nothing else.</p>
-    ${flags.map((f) => `<h2>${esc(f)}</h2><ul class="tips">${GUIDE[f].map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`).join('')}
-    <h2>For everyone</h2>
-    <ul class="tips">${GENERAL_GUIDE.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`;
-}
-
-function renderProfile() {
-  const p = state.profile;
-  const row = (k, v) => `<div class="list-item"><div class="meta"><div class="small">${k}</div><div class="name">${esc(v || '—')}</div></div></div>`;
-  screen.innerHTML = `
-    <h1>Your profile.</h1>
-    <p class="sub">Change anything and your outfits rebuild around it.</p>
-    ${row('Height', p.height)}
-    ${row('Build', p.flags.join(', '))}
-    ${row('Sizes', [p.chest && `Chest ${p.chest}`, p.waist && `Waist ${p.waist}`, p.inseam && `Leg ${p.inseam}`, p.shoe && `Shoe ${p.shoe}`].filter(Boolean).join(' · '))}
-    ${row('Outfit budget', `£${p.budget}`)}
-    ${row('Monthly spend', p.monthly)}
-    ${row('Looks', p.lanes.join(', '))}
-    ${row('Goal', [...p.goalTags, p.goal].filter(Boolean).join(' · '))}
-    <div class="actions"><button class="btn" id="redo">Edit my answers</button></div>
-    <div class="actions"><button class="btn ghost" id="reset" style="flex:1">Start over from scratch</button></div>`;
-  screen.querySelector('#redo').onclick = startOnboarding;
-  screen.querySelector('#reset').onclick = () => {
-    state = { profile: null, picks: {}, owned: [], saved: [], lane: null };
-    save(); startOnboarding();
-  };
-}
-
-const RENDER = { outfit: renderOutfit, wardrobe: renderWardrobe, guide: renderGuide, profile: renderProfile };
-
-function showTab(name) {
+function render() {
+  if (!state.profile) return startOnboarding();
+  const v = state.view;
   tabs.classList.remove('hidden');
-  tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
-  if (!state.profile.lanes.includes(state.lane)) state.lane = state.profile.lanes[0];
-  RENDER[name]();
+  tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.tab === v.tab));
+  if (v.tab === 'home' && v.look && state.profile.lanes.includes(v.look)) return renderLook(v.look);
+  ({ home: renderHome, shop: renderShop, owned: renderOwned, you: renderYou }[v.tab] || renderHome)();
+}
+
+function go(tab, look = null) {
+  state.view = { tab, look };
+  save(); render();
   window.scrollTo(0, 0);
 }
 
 tabs.onclick = (e) => {
   const b = e.target.closest('button');
-  if (b) showTab(b.dataset.tab);
+  if (b) go(b.dataset.tab);
 };
 
-state.profile ? showTab('outfit') : startOnboarding();
+screen.addEventListener('click', (e) => {
+  if (onboarding || !state.profile) return;
+  const t = e.target.closest('button');
+  if (!t) return;
+  const d = t.dataset;
+  if (t.closest('#addLanes')) { t.classList.toggle('on'); return; }
+  if (d.go) return go(d.go);
+  if (d.look) return go('home', d.look);
+  if ('back' in d) return go('home');
+  if (d.add) { state.profile.lanes.push(d.add); save(); return go('home', d.add); }
+  if (d.drop) { state.profile.lanes = state.profile.lanes.filter((l) => l !== d.drop); save(); return go('home'); }
+  if (d.swap) return swap(state.view.look, d.swap);
+  if (d.own) return toggleOwn(state.view.look, d.own);
+  if (d.remove) return removeOwned(d.remove);
+  if (t.id === 'addBtn') return addOwned();
+  if (t.id === 'redo') return startOnboarding();
+  if (t.id === 'reset') { state = blank(); save(); startOnboarding(); }
+});
+
+render();
