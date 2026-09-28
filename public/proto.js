@@ -38,7 +38,9 @@ let onboarding = false;
 let draft = null;
 let step = 0;
 let browseSlot = 'All';
+let browseLook = 'All';
 let browseOrder = null;
+let ringPos = null;
 let sheetEl = null;
 let sheetCtx = null;
 let tasteCache = null;
@@ -797,45 +799,39 @@ function renderBrowse() {
       .sort((a, b) => b.s - a.s)
       .map((f) => f.fam),
   };
-  const families = browseOrder.families.map((fam) => {
-    const variants = Object.values(ITEMS).filter((it) => it.family === fam);
-    const best = variants.map((it) => ({ it, s: Math.max(...it.looks.map((l) => score(it.id, l))) })).sort((a, b) => b.s - a.s)[0];
-    return { fam, variants, show: variants.find((v) => isLiked(v.id)) || best.it };
-  });
+  const inLook = (looks) => browseLook === 'All' || looks.includes(browseLook);
+  const ring = browseOrder.outfits.map((i) => outfits[i]).filter((o) => inLook([o.look]));
+  const families = browseOrder.families
+    .filter((fam) => inLook(FAMILIES[fam].looks))
+    .map((fam) => {
+      const variants = Object.values(ITEMS).filter((it) => it.family === fam);
+      const best = variants.map((it) => ({ it, s: Math.max(...it.looks.map((l) => score(it.id, l))) })).sort((a, b) => b.s - a.s)[0];
+      return { fam, variants, show: variants.find((v) => isLiked(v.id)) || best.it };
+    });
   const shown = families.filter((f) => browseSlot === 'All' || (browseSlot === 'Liked' ? f.variants.some((v) => isLiked(v.id)) : FAMILIES[f.fam].slot === browseSlot));
-  const carouselLeft = screen.querySelector('.carousel')?.scrollLeft || 0;
+  const typeLabel = (f) => ({ All: 'All', Liked: 'Liked', Top: 'Tops', Bottom: 'Bottoms', Shoes: 'Shoes', Layer: 'Layers', Accessory: 'Accessories' }[f]);
 
   screen.innerHTML = `
     <header class="top">
       <div class="overline">Browse</div>
       <h1 class="serif">Find what you like.</h1>
-      <p class="sub">Like outfits and pieces. Every like makes your wardrobe more yours.</p>
     </header>
+    <nav class="look-tabs">${['All', ...LOOK_ORDER].map((l) => `<button class="${browseLook === l ? 'on' : ''}" data-blook="${esc(l)}">${esc(l)}</button>`).join('')}</nav>
+    ${ring.length ? `
+      <div class="ring" aria-label="Outfits">${ring.map((o) => `
+        <button class="mq" data-open-outfit="${o.i}" aria-label="${esc(o.name)}">
+          <span class="mq-fig">${avatarSVG(piecesOf(o))}</span>
+          <span class="mq-floor"></span>
+        </button>`).join('')}
+      </div>
+      <div class="ring-caption" id="ringCaption"></div>` : '<div class="empty">No outfits in this look yet.</div>'}
     <section class="taste">
       <div class="taste-row"><span class="k">Your taste</span><span class="taste-level">${ts.level}</span></div>
       <div class="bar"><span style="width:${ts.pct}%"></span></div>
-      <p>${ts.line ? `${esc(ts.line)} Your outfits are using this.` : 'Like a few outfits or pieces below and this starts to fill in.'}</p>
+      <p>${ts.line ? `${esc(ts.line)} Your outfits are using this.` : 'Like outfits or pieces and this starts to fill in.'}</p>
     </section>
-    <h2 class="section">Outfits for you</h2>
-    <div class="carousel">${browseOrder.outfits.map((i) => outfits[i]).map((o) => `
-      <article class="ocard" style="--tint:${LOOKS[o.look].tint}">
-        <div class="ocard-head">
-          <div>
-            <div class="ocard-name serif">${esc(o.name)}</div>
-            <div class="ocard-meta">${esc(o.look)} · ${money(outfitPrice(o))}</div>
-          </div>
-          <span class="pill ok">${o.match}% match</span>
-        </div>
-        <div class="ocard-fig">${avatarSVG(piecesOf(o))}</div>
-        <div class="strip">${SLOTS.map((s) => `<span style="background:${esc(ITEMS[o.pieces[s]].hex)}"></span>`).join('')}</div>
-        <div class="ocard-actions">
-          <button class="icon-light${isOutfitLiked(o) ? ' on' : ''}" data-like-outfit="${o.i}" aria-label="Like outfit">${heart(isOutfitLiked(o))}</button>
-          <button class="btn light" data-wear="${o.i}">Wear this</button>
-        </div>
-      </article>`).join('')}
-    </div>
-    <h2 class="section">Pieces</h2>
-    <div class="chips filter">${SLOT_FILTERS.map((f) => `<button class="chip${browseSlot === f ? ' on' : ''}" data-bslot="${f}">${f === 'All' || f === 'Liked' ? f : `${f}s`.replace('Shoess', 'Shoes').replace('Accessorys', 'Accessories')}</button>`).join('')}</div>
+    <h2 class="section">Pieces${browseLook === 'All' ? '' : ` for ${esc(browseLook)}`}</h2>
+    <div class="chips filter">${SLOT_FILTERS.map((f) => `<button class="chip${browseSlot === f ? ' on' : ''}" data-bslot="${f}">${typeLabel(f)}</button>`).join('')}</div>
     ${shown.length ? `<div class="pgrid">${shown.map((f) => `
       <button class="pcard" data-item="${esc(f.show.id)}">
         <span class="pcard-sw" style="background:${esc(f.show.hex)}">
@@ -846,8 +842,101 @@ function renderBrowse() {
           <span class="small">${esc(f.show.shop)} · ${money(f.show.price)}</span>
           <span class="dots">${f.variants.map((v) => `<span style="background:${esc(v.hex)}"></span>`).join('')}</span>
         </span>
-      </button>`).join('')}</div>` : '<div class="empty">Nothing liked yet. Tap the heart on anything you like.</div>'}`;
-  screen.querySelector('.carousel').scrollLeft = carouselLeft;
+      </button>`).join('')}</div>` : `<div class="empty">${browseSlot === 'Liked' ? 'Nothing liked here yet. Tap the heart on anything you like.' : 'Nothing here yet.'}</div>`}`;
+
+  if (ring.length) setupRing(ring);
+}
+
+// Three mannequins in view, the centre one closest, like a slowly turning stand.
+function setupRing(ring) {
+  const el = screen.querySelector('.ring');
+  const caption = screen.querySelector('#ringCaption');
+  const items = [...el.querySelectorAll('.mq')];
+  let centred = -1;
+  const paint = () => {
+    const mid = el.scrollLeft + el.clientWidth / 2;
+    let best = 0;
+    items.forEach((mq, i) => {
+      const d = (mq.offsetLeft + mq.offsetWidth / 2 - mid) / mq.offsetWidth;
+      const a = Math.min(Math.abs(d), 2);
+      mq.style.transform = `perspective(800px) rotateY(${Math.max(-2, Math.min(2, d)) * -18}deg) scale(${1.1 - a * 0.24})`;
+      mq.style.opacity = String(1 - a * 0.28);
+      mq.style.zIndex = String(10 - Math.round(a * 3));
+      if (Math.abs(d) < Math.abs((items[best].offsetLeft + items[best].offsetWidth / 2 - mid) / items[best].offsetWidth)) best = i;
+    });
+    if (best !== centred) {
+      centred = best;
+      const o = ring[best];
+      caption.innerHTML = `
+        <div class="rc-name serif">${esc(o.name)}</div>
+        <div class="rc-meta">${esc(o.look)} · ${money(outfitPrice(o))} · ${o.match}% match</div>
+        <div class="rc-actions">
+          <button class="icon${isOutfitLiked(o) ? ' on' : ''}" data-like-outfit="${o.i}" aria-label="Like outfit">${heart(isOutfitLiked(o))}</button>
+          <button class="rc-open" data-open-outfit="${o.i}">View outfit</button>
+        </div>`;
+    }
+    ringPos = el.scrollLeft;
+  };
+  // First visit opens on the second outfit so there's one either side.
+  el.scrollLeft = ringPos ?? (items.length > 2 ? items[1].offsetLeft + items[1].offsetWidth / 2 - el.clientWidth / 2 : 0);
+  let frame = 0;
+  el.addEventListener('scroll', () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(paint); }, { passive: true });
+  paint();
+}
+
+function openOutfit(o) {
+  state.view = { tab: 'browse', look: null, outfit: { name: o.name, base: o.name, look: o.look, pieces: { ...o.pieces }, edited: false } };
+  save(); render();
+  window.scrollTo(0, 0);
+}
+
+function renderOutfit() {
+  const o = state.view.outfit;
+  const liked = isOutfitLiked(o);
+  const more = OUTFITS.map((x, i) => ({ ...x, i })).filter((x) => x.look === o.look && x.name !== o.base);
+  screen.innerHTML = `
+    <button class="back plain" data-back-browse>‹ Browse</button>
+    <section class="stage" style="--tint:${LOOKS[o.look].tint}">
+      <div class="stage-fig">${avatarSVG(piecesOf(o))}</div>
+    </section>
+    <header class="outfit-head">
+      <div class="overline">${esc(o.look)}${o.edited ? ' · Your version' : ''}</div>
+      <h1 class="serif">${esc(o.base)}</h1>
+      <div class="small">${money(outfitPrice(o))} · ${matchPct(o)}% match</div>
+    </header>
+    ${SLOTS.map((slot) => {
+      const it = ITEMS[o.pieces[slot]];
+      const why = reasonsFor(it.id);
+      return `
+        <article class="piece slim">
+          <div class="piece-head">
+            <div class="swatch" style="background:${esc(it.hex)}"></div>
+            <div class="meta">
+              <div class="slot">${slot}</div>
+              <div class="name">${esc(it.name)}</div>
+              <div class="small">${esc(it.colour)} · ${esc(it.shop)}</div>
+              ${why.length ? `<div class="small you">${esc(why[0].charAt(0).toUpperCase() + why[0].slice(1))}</div>` : ''}
+            </div>
+            <div class="right"><div class="price">${money(it.price)}</div></div>
+          </div>
+          <div class="piece-actions">
+            <button class="primary" data-ochange="${slot}">Change</button>
+            <button class="icon${isLiked(it.id) ? ' on' : ''}" data-like="${esc(it.id)}" aria-label="Like">${heart(isLiked(it.id))}</button>
+          </div>
+        </article>`;
+    }).join('')}
+    <div class="actions">
+      <button class="btn ghost" data-like-draft>${liked ? 'Liked ✓' : 'Like'}</button>
+      <button class="btn" data-wear-draft>Wear this as my ${esc(o.look)} look</button>
+    </div>
+    ${more.length ? `
+      <h2 class="section">More ${esc(o.look)}</h2>
+      <div class="more-row">${more.map((x) => `
+        <button class="more" data-open-outfit="${x.i}">
+          <span class="more-fig">${avatarSVG(piecesOf(x))}</span>
+          <span class="small">${esc(x.name)}</span>
+        </button>`).join('')}
+      </div>` : ''}`;
 }
 
 function renderShop() {
@@ -1000,8 +1089,18 @@ function itemHeader(it, withLike = true) {
     </div>`;
 }
 
-function changeSheet({ look, slot }) {
-  const cur = plan().looks[look][slot];
+// The piece being changed: from his wardrobe, or from an outfit he's customising in Browse.
+function currentPiece(ctx) {
+  if (ctx.draft) {
+    const id = state.view.outfit.pieces[ctx.slot];
+    return { id, item: ITEMS[id] };
+  }
+  return plan().looks[ctx.look][ctx.slot];
+}
+
+function changeSheet(ctx) {
+  const { look, slot } = ctx;
+  const cur = currentPiece(ctx);
   const it = cur.item;
   const all = candidates(look, slot).filter((id) => !isExcluded(ITEMS[id]));
   const colours = all.filter((id) => ITEMS[id].family === it.family);
@@ -1011,7 +1110,7 @@ function changeSheet({ look, slot }) {
     return d === 0 ? 'Same price' : d < 0 ? `${money(-d)} less` : `${money(d)} more`;
   };
   return `
-    <div class="overline">${slot} · ${esc(look)}</div>
+    <div class="overline">${slot} · ${esc(ctx.draft ? state.view.outfit.base : look)}</div>
     ${itemHeader(it)}
     <div class="quick">
       <button data-quick="cheaper">Cheaper</button>
@@ -1021,7 +1120,7 @@ function changeSheet({ look, slot }) {
     ${colours.length > 1 ? `
       <div class="label">Colours</div>
       <div class="swatches">${colours.map((id) => `<button class="sw${id === cur.id ? ' on' : ''}" data-pick="${esc(id)}" style="background:${esc(ITEMS[id].hex)}" title="${esc(ITEMS[id].colour)}" aria-label="${esc(ITEMS[id].colour)}"></button>`).join('')}</div>` : ''}
-    <div class="label">Everything that works in your ${esc(look)} look</div>
+    <div class="label">Everything that works in ${ctx.draft ? 'this outfit' : `your ${esc(look)} look`}</div>
     <div class="opt-list">${others.map((id, i) => {
       const o = ITEMS[id];
       const why = reasonsFor(id)[0];
@@ -1102,17 +1201,25 @@ function refresh() {
 }
 
 function pick(look, slot, id, msg) {
-  const cur = plan().looks[look][slot];
+  const draftMode = sheetCtx?.draft;
+  const cur = currentPiece({ look, slot, draft: draftMode });
   if (cur.id && cur.id !== id) state.signals.away[cur.id] = (state.signals.away[cur.id] || 0) + 1;
   state.signals.n++;
-  (state.picks[look] ||= {})[slot] = id;
+  if (draftMode) {
+    const o = state.view.outfit;
+    o.pieces[slot] = id;
+    o.edited = true;
+    o.name = `${o.base} (your version)`;
+  } else {
+    (state.picks[look] ||= {})[slot] = id;
+  }
   touch(); save(); closeSheet(); render();
   toast(msg || `Swapped to ${ITEMS[id].colour.toLowerCase()} ${ITEMS[id].name.toLowerCase()}`);
 }
 
 function quick(kind) {
   const { look, slot } = sheetCtx;
-  const cur = plan().looks[look][slot].item;
+  const cur = currentPiece(sheetCtx).item;
   const ranked = candidates(look, slot).filter((id) => id !== cur.id && !isExcluded(ITEMS[id])).sort((a, b) => score(b, look) - score(a, look));
   let target;
   if (kind === 'cheaper') target = ranked.find((id) => ITEMS[id].price < cur.price);
@@ -1195,11 +1302,12 @@ function render() {
   tabs.classList.remove('hidden');
   tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.tab === v.tab));
   if (v.tab === 'home' && v.look && state.profile.lanes.includes(v.look)) return renderLook(v.look);
+  if (v.tab === 'browse' && v.outfit) return renderOutfit();
   ({ home: renderHome, browse: renderBrowse, shop: renderShop, owned: renderOwned, you: renderYou }[v.tab] || renderHome)();
 }
 
 function go(tab, look = null) {
-  if (tab === 'browse') browseOrder = null;
+  if (tab === 'browse') { browseOrder = null; ringPos = null; }
   state.view = { tab, look };
   save(); render();
   window.scrollTo(0, 0);
@@ -1231,8 +1339,13 @@ screen.addEventListener('click', (e) => {
   if (d.like) return toggleLike(d.like);
   if (d.own) return toggleOwn(state.view.look, d.own);
   if (d.item) return openSheet({ type: 'item', id: d.item });
-  if (d.wear) return applyOutfit(OUTFITS[+d.wear]);
+  if (d.openOutfit) return openOutfit(OUTFITS[+d.openOutfit]);
+  if ('backBrowse' in d) { state.view = { tab: 'browse', look: null }; save(); render(); return; }
+  if (d.ochange) return openSheet({ type: 'change', look: state.view.outfit.look, slot: d.ochange, draft: true });
+  if ('likeDraft' in d) return toggleOutfitLike(state.view.outfit);
+  if ('wearDraft' in d) return applyOutfit(state.view.outfit);
   if (d.likeOutfit) return toggleOutfitLike(OUTFITS[+d.likeOutfit]);
+  if (d.blook) { browseLook = d.blook; ringPos = null; return render(); }
   if (d.bslot) { browseSlot = d.bslot; return render(); }
   if (d.remove) return removeOwned(d.remove);
   if (t.id === 'addBtn') return addOwned();
