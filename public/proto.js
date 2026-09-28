@@ -17,6 +17,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const money = (n) => `£${Math.round(n).toLocaleString('en-GB')}`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const listJoin = (a) => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
+const thumb = (it, cls = '') => (it.family ? `<span class="thumb ${cls}">${productSVG(it)}</span>` : `<span class="swatch ${cls}" style="background:${esc(it.hex)}"></span>`);
 const heart = (on) => `<svg viewBox="0 0 24 24" class="heart${on ? ' on' : ''}" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>`;
 
 const blank = () => ({
@@ -646,38 +647,7 @@ function parseHeight(h) {
 }
 
 function avatarSVG(pieces) {
-  const flags = state.profile.flags;
-  const f = Math.min(1.1, Math.max(0.88, parseHeight(state.profile.height) / 70));
-  let sw = 46;
-  let ww = 34;
-  if (flags.includes('Broad shoulders')) sw += 10;
-  if (flags.includes('Athletic')) { sw += 6; ww -= 2; }
-  if (flags.includes('Slim')) { sw -= 4; ww -= 3; }
-  if (flags.includes('Carrying some weight')) { sw += 4; ww += 10; }
-
-  const col = (s) => esc(pieces[s].item.hex);
-  const base = 250, shoeH = 8, legH = 100 * f, torsoH = 72 * f;
-  const legTop = base - shoeH - legH;
-  const torsoTop = legTop - torsoH;
-  const headR = 14;
-  const headCy = torsoTop - 6 - headR;
-  const L = 60 - sw / 2, R = 60 + sw / 2, wl = 60 - ww / 2, wr = 60 + ww / 2;
-  const edge = 'rgba(0,0,0,.14)';
-
-  return `<svg viewBox="0 0 120 260" aria-label="Avatar preview">
-    <rect x="55" y="${headCy + headR - 2}" width="10" height="10" fill="#bdb5a8"/>
-    <circle cx="60" cy="${headCy}" r="${headR}" fill="#cfc8bd"/>
-    <rect x="${L - 10}" y="${torsoTop + 2}" width="10" height="${torsoH + 8}" rx="5" fill="${col('Layer')}" stroke="${edge}"/>
-    <rect x="${R}" y="${torsoTop + 2}" width="10" height="${torsoH + 8}" rx="5" fill="${col('Layer')}" stroke="${edge}"/>
-    <circle cx="${L - 5}" cy="${torsoTop + torsoH + 4}" r="3.5" fill="${col('Accessory')}"/>
-    <polygon points="${L},${torsoTop} ${R},${torsoTop} ${wr},${legTop} ${wl},${legTop}" fill="${col('Top')}" stroke="${edge}"/>
-    <polygon points="${L},${torsoTop} ${L + sw * 0.3},${torsoTop} ${wl + ww * 0.25},${legTop} ${wl},${legTop}" fill="${col('Layer')}" stroke="${edge}"/>
-    <polygon points="${R - sw * 0.3},${torsoTop} ${R},${torsoTop} ${wr},${legTop} ${wr - ww * 0.25},${legTop}" fill="${col('Layer')}" stroke="${edge}"/>
-    <rect x="${wl}" y="${legTop}" width="${ww / 2 - 1}" height="${legH}" fill="${col('Bottom')}" stroke="${edge}"/>
-    <rect x="61" y="${legTop}" width="${ww / 2 - 1}" height="${legH}" fill="${col('Bottom')}" stroke="${edge}"/>
-    <rect x="${wl - 3}" y="${base - shoeH}" width="${ww / 2 + 2}" height="${shoeH}" rx="3" fill="${col('Shoes')}" stroke="rgba(0,0,0,.25)"/>
-    <rect x="60" y="${base - shoeH}" width="${ww / 2 + 2}" height="${shoeH}" rx="3" fill="${col('Shoes')}" stroke="rgba(0,0,0,.25)"/>
-  </svg>`;
+  return mannequinSVG(state.profile, pieces);
 }
 
 // ---------- Screens ----------
@@ -765,7 +735,7 @@ function pieceCard(lane, slot, x, pl) {
   return `
     <article class="piece">
       <div class="piece-head">
-        <div class="swatch" style="background:${esc(it.hex)}"></div>
+        ${thumb(it)}
         <div class="meta">
           <div class="slot">${slot}</div>
           <div class="name">${esc(it.name)}</div>
@@ -834,7 +804,8 @@ function renderBrowse() {
     <div class="chips filter">${SLOT_FILTERS.map((f) => `<button class="chip${browseSlot === f ? ' on' : ''}" data-bslot="${f}">${typeLabel(f)}</button>`).join('')}</div>
     ${shown.length ? `<div class="pgrid">${shown.map((f) => `
       <button class="pcard" data-item="${esc(f.show.id)}">
-        <span class="pcard-sw" style="background:${esc(f.show.hex)}">
+        <span class="pcard-img">
+          ${productSVG(f.show)}
           <span class="heart-btn${isLiked(f.show.id) ? ' on' : ''}" data-like="${esc(f.show.id)}">${heart(isLiked(f.show.id))}</span>
         </span>
         <span class="pcard-body">
@@ -910,7 +881,7 @@ function renderOutfit() {
       return `
         <article class="piece slim">
           <div class="piece-head">
-            <div class="swatch" style="background:${esc(it.hex)}"></div>
+            ${thumb(it)}
             <div class="meta">
               <div class="slot">${slot}</div>
               <div class="name">${esc(it.name)}</div>
@@ -965,7 +936,7 @@ function shopRow(id, pl) {
   const it = ITEMS[id];
   return `
     <div class="row-item">
-      <div class="swatch" style="background:${esc(it.hex)}"></div>
+      ${thumb(it)}
       <div class="meta">
         <div class="name">${esc(it.name)}</div>
         <div class="small">${esc(it.colour)} · ${esc(it.shop)}</div>
@@ -978,8 +949,8 @@ function shopRow(id, pl) {
 function renderOwned() {
   const p = state.profile;
   const rows = [
-    ...state.ownedIds.filter((id) => ITEMS[id]).map((id) => ({ key: `id:${id}`, name: ITEMS[id].name, hex: ITEMS[id].hex, sub: `${ITEMS[id].slot} · ${ITEMS[id].colour}` })),
-    ...state.ownedManual.map((o, i) => ({ key: `m:${i}`, name: o.name, hex: o.hex, sub: `${o.slot} · ${o.lanes.join(', ')}` })),
+    ...state.ownedIds.filter((id) => ITEMS[id]).map((id) => ({ key: `id:${id}`, item: ITEMS[id], name: ITEMS[id].name, sub: `${ITEMS[id].slot} · ${ITEMS[id].colour}` })),
+    ...state.ownedManual.map((o, i) => ({ key: `m:${i}`, item: o, name: o.name, sub: `${o.slot} · ${o.lanes.join(', ')}` })),
   ];
   screen.innerHTML = `
     <header class="top">
@@ -990,7 +961,7 @@ function renderOwned() {
     <section class="card">
       ${rows.length ? rows.map((r) => `
         <div class="row-item">
-          <div class="swatch" style="background:${esc(r.hex)}"></div>
+          ${thumb(r.item)}
           <div class="meta"><div class="name">${esc(r.name)}</div><div class="small">${esc(r.sub)}</div></div>
           <button class="link" data-remove="${esc(r.key)}">Remove</button>
         </div>`).join('') : '<div class="empty">Nothing yet. Tap “I own this” on any piece, or add one below.</div>'}
@@ -1079,7 +1050,7 @@ function renderSheet() {
 function itemHeader(it, withLike = true) {
   return `
     <div class="sheet-item">
-      <div class="swatch big" style="background:${esc(it.hex)}"></div>
+      ${thumb(it, 'big')}
       <div class="meta">
         <div class="name">${esc(it.name)}</div>
         <div class="small">${esc(it.colour)} · ${esc(it.fit)} · ${esc(it.shop)}</div>
@@ -1127,7 +1098,7 @@ function changeSheet(ctx) {
       return `
         <div class="opt">
           <button class="opt-main" data-pick="${esc(id)}">
-            <span class="swatch" style="background:${esc(o.hex)}"></span>
+            ${thumb(o)}
             <span class="meta">
               <span class="name">${esc(o.name)}${i === 0 ? ' <span class="rec-tag">Best match</span>' : ''}</span>
               <span class="small">${esc(o.colour)} · ${esc(o.shop)} · ${money(o.price)} <span class="diff">${diff(id)}</span></span>
@@ -1167,7 +1138,7 @@ function builtSheet(o) {
       <div class="built-fig" style="--tint:${LOOKS[o.look].tint}">${avatarSVG(piecesOf(o))}</div>
       <div class="built-list">${SLOTS.map((s) => {
         const it = ITEMS[o.pieces[s]];
-        return `<div class="built-row"><span class="swatch sm" style="background:${esc(it.hex)}"></span><span class="meta"><span class="name">${esc(it.name)}</span><span class="small">${esc(it.colour)} · ${money(it.price)}</span></span></div>`;
+        return `<div class="built-row">${thumb(it, 'sm')}<span class="meta"><span class="name">${esc(it.name)}</span><span class="small">${esc(it.colour)} · ${money(it.price)}</span></span></div>`;
       }).join('')}</div>
     </div>
     <div class="built-total"><span>${matchPct(o)}% match</span><span>${money(outfitPrice(o))}</span></div>
