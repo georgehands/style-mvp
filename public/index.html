@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your Style, Decided</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Tell me who you're trying to become.</h1>
+    <p class="sub">One outfit, picked for your build and your budget. No scrolling, no menu of options.</p>
+
+    <form id="styleForm">
+      <label>
+        Height
+        <input type="text" name="height" placeholder="e.g. 5'10&quot;" required>
+      </label>
+
+      <label>
+        Build
+        <input type="text" name="build" placeholder="e.g. broad shoulders, slim, average, shorter build" required>
+      </label>
+
+      <label>
+        Budget for this outfit
+        <input type="text" name="budget" placeholder="e.g. £150" required>
+      </label>
+
+      <label>
+        Style words
+        <input type="text" name="styleWords" placeholder="e.g. smart casual, streetwear, clean" required>
+      </label>
+
+      <label>
+        What are you actually trying to change?
+        <textarea name="goal" rows="3" placeholder="e.g. I feel invisible, back on dating apps, want to actually get noticed" required></textarea>
+      </label>
+
+      <button type="submit">Get my outfit</button>
+    </form>
+
+    <div id="loading" class="hidden">Picking it now...</div>
+    <div id="result" class="hidden"></div>
+    <div id="error" class="hidden"></div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
