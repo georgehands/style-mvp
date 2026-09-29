@@ -20,6 +20,13 @@
       <button data-tab="you"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.2" r="3.6"/><path d="M5 20c1.2-3.7 3.9-5.6 7-5.6s5.8 1.9 7 5.6"/></svg><span>You</span></button>
     </nav>
   </div>
+  <!-- Netlify Forms reads these at deploy time. The app posts to them from proto.js. -->
+  <form name="leads" data-netlify="true" hidden>
+    <input name="name"><input name="email"><input name="opt_in"><input name="goals"><input name="build"><input name="height"><input name="work"><input name="looks"><input name="budget"><input name="monthly">
+  </form>
+  <form name="checkout-clicks" data-netlify="true" hidden>
+    <input name="name"><input name="email"><input name="price"><input name="looks"><input name="budget">
+  </form>
   <script src="catalogue.js"></script>
   <script src="art.js"></script>
   <script src="proto.js"></script>

@@ -26,6 +26,7 @@ const blank = () => ({
   profile: null, picks: {}, ownedIds: [], ownedManual: [],
   likes: { items: [], outfits: [] }, signals: { away: {}, n: 0 }, notes: [],
   view: { tab: 'home', look: null },
+  unlocked: false, leadSent: '',
 });
 const blankProfile = () => ({
   goals: [], goalText: '',
@@ -34,6 +35,7 @@ const blankProfile = () => ({
   fit: '', colours: '', never: [],
   refMode: '', refImage: null, refPalette: null, refSummary: '',
   lanes: [], budget: 300, monthly: '',
+  name: '', email: '', optIn: false,
 });
 
 let state = load() || blank();
@@ -208,6 +210,47 @@ function refBlock(p, compact = false) {
     </div>`;
 }
 
+// ---------- Funnel: welcome, intake notes, preview, checkout ----------
+
+const PRICE = 49;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const LOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+const GOAL_NOTES = {
+  'Improve my overall look': 'Most of looking put together comes down to fit and colour, not spending more. That’s where we start.',
+  'Expand my wardrobe': 'Every new piece gets picked to go with the rest, so you get more outfits out of fewer clothes.',
+  'Start again from scratch': 'Starting clean is the easy version. Nothing old to design around.',
+  'Dress better for work': 'We’ll make sure one look covers work properly, then build the rest around it.',
+  'Find a style that’s actually me': 'Your answers steer the first picks. After that, everything you like or swap makes it more you.',
+  'Upgrade the basics': 'Basics carry most outfits, so better ones lift everything you already own.',
+};
+const COLOUR_WORDS = {
+  'Mostly neutrals': 'navy, grey, white and black',
+  'Earth tones': 'olive, tan, stone and brown',
+  'Happy with some colour': 'neutrals with one colour per outfit',
+};
+const buildFlag = (p) => p.flags.find((f) => f !== 'Average') || (p.flags.length ? 'Average' : null);
+
+// Sends a row to Netlify Forms. Only runs where the matching hidden form exists (the Netlify build), never in the claude.ai copy.
+function record(form, fields) {
+  if (!document.querySelector(`form[name="${form}"]`)) return;
+  fetch('/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ 'form-name': form, ...fields }).toString(),
+  }).catch(() => {});
+}
+
+function setFunnel(on) {
+  document.body.classList.toggle('funnel', on);
+  if (on) tabs.classList.add('hidden');
+}
+
+function previewPlan(d) {
+  const keep = state.profile;
+  state.profile = d;
+  try { return plan(); } finally { state.profile = keep; }
+}
+
 // ---------- Onboarding ----------
 
 const STEPS = [
@@ -220,6 +263,7 @@ const STEPS = [
         <textarea id="goalText" rows="3" placeholder="e.g. I’ve got loads of clothes but nothing goes together">${esc(draft.goalText)}</textarea>
       </label>`,
     valid: () => draft.goals.length || draft.goalText.trim(),
+    note: () => (draft.goals.length ? { label: 'Stylist note', text: GOAL_NOTES[draft.goals[draft.goals.length - 1]] } : null),
   },
   {
     title: 'Your build.',
@@ -230,6 +274,11 @@ const STEPS = [
       </label>
       ${question('Pick any that sound like you', 'flags', BUILDS, true)}`,
     valid: () => draft.height.trim() && draft.flags.length,
+    fig: true,
+    note: () => {
+      const f = buildFlag(draft);
+      return f ? { label: 'Your first tip', text: GUIDE[f][0] } : { label: 'Your figure', text: 'Pick your build and it reshapes to match.' };
+    },
   },
   {
     title: 'Your sizes.',
@@ -244,6 +293,10 @@ const STEPS = [
         <label class="field">Shoe<input type="text" id="shoe" placeholder="e.g. UK 9" value="${esc(draft.shoe)}"></label>
       </div>`,
     valid: () => true,
+    fig: true,
+    note: () => (draft.chest.trim() || draft.waist.trim()
+      ? { label: 'Your figure', text: 'Redrawn to your measurements. Every outfit you see will be on this figure.' }
+      : { label: 'Your figure', text: 'Add your chest and waist and the figure redraws to match.' }),
   },
   {
     title: 'What does a normal week look like?',
@@ -254,6 +307,9 @@ const STEPS = [
       ${question('Going out', 'out', OUT)}
       ${question('Weekends', 'weekends', WEEKENDS, true, 'pick any')}`,
     valid: () => draft.work && draft.gym && draft.out,
+    note: () => (draft.work && draft.gym && draft.out
+      ? { label: 'Stylist note', text: `A week like that needs ${listJoin(recommendLooks(draft))}. Those get built first.` }
+      : null),
   },
   {
     title: 'How do you like to wear things?',
@@ -263,6 +319,11 @@ const STEPS = [
       ${question('Colours', 'colours', COLOURS)}
       ${question('Things you’d never wear', 'never', NEVER, true, 'optional')}`,
     valid: () => draft.fit && draft.colours,
+    note: () => {
+      if (!draft.fit || !draft.colours) return null;
+      const never = draft.never.length ? ` No ${listJoin(draft.never.map((n) => n.toLowerCase()))}, anywhere.` : '';
+      return { label: 'Stylist note', text: `${draft.fit} cuts in ${COLOUR_WORDS[draft.colours]}.${never}` };
+    },
   },
   {
     title: 'Got a look you’re going for?',
@@ -298,6 +359,9 @@ const STEPS = [
         </div>`;
     },
     valid: () => draft.lanes.length,
+    note: () => (draft.lanes.length > 1
+      ? { label: 'Stylist note', text: `${plural(draft.lanes.length, 'look')}. Where a piece works in more than one, it gets shared, so you don’t buy twice.` }
+      : null),
   },
   {
     title: 'What’s your wardrobe budget?',
@@ -313,15 +377,47 @@ const STEPS = [
       <p class="small" style="margin:0 0 14px">So we can tell you when you’ll have the rest.</p>
       <div class="chips" data-single="monthly">${Object.keys(MONTHLY).map((m) => chip(m, draft.monthly === m)).join('')}</div>`,
     valid: () => draft.monthly,
+    note: () => {
+      const pl = previewPlan(draft);
+      const n = draft.lanes.length;
+      const first = pl.ready.length
+        ? `${budgetLabel(draft.budget)} finishes ${pl.ready.length === n ? `all ${plural(n, 'look')}` : `${pl.ready.length} of your ${n} looks`} straight away.`
+        : `${budgetLabel(draft.budget)} won’t finish a whole look yet, so you’d start with the pieces that work hardest.`;
+      const rest = pl.later.length && draft.monthly
+        ? ` The rest in about ${plural(Math.ceil(pl.laterTotal / MONTHLY[draft.monthly]), 'month')} at what you usually spend.`
+        : '';
+      return { label: 'Your budget', text: first + rest };
+    },
+  },
+  {
+    title: 'Who’s this wardrobe for?',
+    sub: 'Your name and email, so we know whose plan this is and can get in touch about it.',
+    render: () => `
+      <label class="field">First name
+        <input type="text" id="name" autocomplete="given-name" placeholder="e.g. Sam" value="${esc(draft.name)}">
+      </label>
+      <label class="field">Email
+        <input type="email" id="email" autocomplete="email" inputmode="email" placeholder="you@example.com" value="${esc(draft.email)}">
+      </label>
+      <label class="check">
+        <input type="checkbox" id="optIn"${draft.optIn ? ' checked' : ''}>
+        <span>Send me style tips and new looks now and then. Unsubscribe any time.</span>
+      </label>
+      <p class="fine left">We won’t sell or share your email.</p>`,
+    valid: () => draft.name.trim() && EMAIL_RE.test(draft.email.trim()),
+    note: () => {
+      const pl = previewPlan(draft);
+      return { label: 'Ready to build', text: `${plural(draft.lanes.length, 'look')} and ${plural(pl.pieceCount, 'piece')}, built around ${budgetLabel(draft.budget)}.` };
+    },
   },
 ];
 
 function startOnboarding() {
   onboarding = true;
   closeSheet();
-  draft = state.profile ? structuredClone(state.profile) : blankProfile();
+  draft = state.profile ? { ...blankProfile(), ...structuredClone(state.profile) } : blankProfile();
   step = 0;
-  tabs.classList.add('hidden');
+  setFunnel(true);
   renderStep();
 }
 
@@ -335,17 +431,20 @@ function renderStep() {
       <h1 class="serif">${s.title}</h1>
       <p class="sub">${s.sub}</p>
       ${s.render()}
+      <div id="note" aria-live="polite"></div>
       <div class="actions">
         ${step > 0 ? '<button class="btn ghost" id="back">Back</button>' : ''}
         <button class="btn" id="next">${step === STEPS.length - 1 ? 'Build my wardrobe' : 'Next'}</button>
       </div>
     </div>`;
 
-  screen.querySelectorAll('input[type=text], textarea').forEach((el) => {
+  screen.querySelectorAll('input[type=text], input[type=email], textarea').forEach((el) => {
     el.addEventListener('input', () => { draft[el.id] = el.value; refreshNext(); });
   });
   const range = screen.querySelector('#budget');
-  if (range) range.addEventListener('input', () => { draft.budget = +range.value; screen.querySelector('#budgetVal').textContent = budgetLabel(draft.budget); });
+  if (range) range.addEventListener('input', () => { draft.budget = +range.value; screen.querySelector('#budgetVal').textContent = budgetLabel(draft.budget); refreshNext(); });
+  const optIn = screen.querySelector('#optIn');
+  if (optIn) optIn.addEventListener('change', () => { draft.optIn = optIn.checked; });
   const file = screen.querySelector('#refFile');
   if (file) file.addEventListener('change', () => handleRefFile(file.files[0], draft));
 
@@ -383,19 +482,45 @@ function renderStep() {
 
 function refreshNext() {
   screen.querySelector('#next').disabled = !STEPS[step].valid();
+  refreshNote();
+}
+
+function refreshNote() {
+  const el = screen.querySelector('#note');
+  const s = STEPS[step];
+  const n = s.note?.();
+  el.innerHTML = n ? `
+    <div class="note-card">
+      ${s.fig ? `<div class="note-fig">${mannequinSVG(draft, piecesOf(OUTFITS[0]))}</div>` : ''}
+      <div><div class="note-label">${esc(n.label)}</div><p>${esc(n.text)}</p></div>
+    </div>` : '';
 }
 
 function finishOnboarding() {
   onboarding = false;
+  draft.email = draft.email.trim();
   state.profile = draft;
   state.view = { tab: 'home', look: null };
+  if (draft.email !== state.leadSent) {
+    record('leads', {
+      name: draft.name.trim(), email: draft.email, opt_in: draft.optIn ? 'yes' : 'no',
+      goals: draft.goals.join(', '), build: draft.flags.join(', '), height: draft.height,
+      work: draft.work, looks: draft.lanes.join(', '), budget: budgetLabel(draft.budget), monthly: draft.monthly,
+    });
+    state.leadSent = draft.email;
+  }
   save();
+  const lines = ['Reading your build', 'Matching pieces to your week', `Fitting it all into ${budgetLabel(draft.budget)}`];
   screen.innerHTML = `
     <div class="loader">
       <div><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-      <p class="sub" style="margin-top:20px">Building your wardrobe around your week, your build and your budget…</p>
+      <p class="sub" id="loadLine">${lines[0]}…</p>
     </div>`;
-  setTimeout(render, 1400);
+  lines.slice(1).forEach((l, i) => setTimeout(() => {
+    const el = document.getElementById('loadLine');
+    if (el) el.textContent = `${l}…`;
+  }, 800 * (i + 1)));
+  setTimeout(() => { render(); window.scrollTo(0, 0); }, 2500);
 }
 
 // ---------- Taste: what his likes and changes say about him ----------
@@ -1444,8 +1569,161 @@ function colourHex(name) {
   return rgbToHex(...rgb);
 }
 
+function renderWelcome() {
+  setFunnel(true);
+  const model = { height: '', flags: [], chest: '', waist: '' };
+  const fig = (name) => mannequinSVG(model, piecesOf(OUTFITS.find((o) => o.name === name)));
+  screen.innerHTML = `
+    <div class="welcome">
+      <div class="brand"><span>Style, Decided</span><small>Beta</small></div>
+      <div class="stage">
+        <div class="fig-s">${fig('Weekend Earth Tones')}</div>
+        <div class="fig-c">${fig('Dinner Out')}</div>
+        <div class="fig-s">${fig('Quiet Luxury')}</div>
+      </div>
+      <h1 class="serif">Know exactly what to wear.</h1>
+      <p class="lede">Tell us your build, your week and your budget. You get one clear wardrobe back: every outfit, what to buy first, and why each piece works on you.</p>
+      <ul class="promise">
+        <li><span><b>Cut for your frame</b>Picked for your height and shape, not a model’s.</span></li>
+        <li><span><b>Everything goes together</b>Each piece is chosen to work with the rest, so nothing sits unworn.</span></li>
+        <li><span><b>Inside your budget</b>What to buy now, and roughly when you’ll have the rest.</span></li>
+      </ul>
+      <button class="btn" id="start">Start my wardrobe</button>
+      <p class="fine">Takes about 3 minutes. Your first look is free.</p>
+    </div>`;
+  screen.querySelector('#start').onclick = () => { startOnboarding(); window.scrollTo(0, 0); };
+}
+
+function renderPreview() {
+  setFunnel(true);
+  const p = state.profile;
+  const pl = plan();
+  const [free, ...rest] = p.lanes;
+  const pieces = pl.looks[free];
+  const flag = buildFlag(p);
+  const left = pl.remaining(free);
+  const row = (slot) => {
+    const it = pieces[slot].item;
+    const mine = reasonsFor(it.id);
+    const fitNote = flag && flag !== 'Average' ? BUILD_NOTES[flag]?.[slot] : '';
+    return `
+      <div class="free-row">
+        ${thumb(it)}
+        <div class="meta">
+          <div class="slot">${slot}</div>
+          <div class="name">${esc(it.name)}</div>
+          <div class="small">${esc(it.colour)} · ${esc(it.shop)}</div>
+          ${it.why ? `<p class="why">${esc(it.why)}</p>` : ''}
+          ${fitNote ? `<p class="why fit">For your build: ${esc(fitNote)}</p>` : ''}
+          ${mine.length ? `<p class="why fit">Picked for you: ${esc(mine.join(', '))}.</p>` : ''}
+        </div>
+        <div class="price">${pieces[slot].owned ? 'Owned' : money(it.price)}</div>
+      </div>`;
+  };
+  screen.innerHTML = `
+    <div class="preview">
+      <div class="overline">${p.name ? `${esc(p.name)}’s wardrobe` : 'Your wardrobe'}</div>
+      <h1 class="serif">${plural(p.lanes.length, 'look')}, ${plural(pl.pieceCount, 'piece')}, built around ${budgetLabel(p.budget)}.</h1>
+      <div class="stats">
+        <div><span class="k">Ready now</span><span class="v">${pl.ready.length}/${p.lanes.length}</span></div>
+        <div><span class="k">Buy now</span><span class="v">${money(pl.spent)}</span></div>
+        <div><span class="k">Shared</span><span class="v">${pl.shared}</span></div>
+      </div>
+
+      <h2 class="section">Your first look, free</h2>
+      <section class="free-look" style="--tint:${LOOKS[free].tint}">
+        <div class="free-head">
+          <div class="look-fig">${avatarSVG(pieces)}</div>
+          <div>
+            <div class="overline">Look 1 of ${p.lanes.length}</div>
+            <h3 class="serif">${esc(free)}</h3>
+            <p>${esc(LOOKS[free].tagline)}</p>
+            <span class="pill${left === 0 ? ' ok' : ''}">${left === 0 ? 'Fits your budget' : `${money(left)} more to finish`}</span>
+          </div>
+        </div>
+        ${SLOTS.map(row).join('')}
+      </section>
+
+      <h2 class="section">Also built for you</h2>
+      ${rest.length ? `<div class="grid">${rest.map((l) => `
+        <button class="tile locked" data-locked style="--tint:${LOOKS[l].tint}">
+          <div class="tile-head"><span class="tile-name serif">${esc(l)}</span><span class="lock">${LOCK}</span></div>
+          <div class="tile-fig">${avatarSVG(pl.looks[l])}</div>
+          <div class="tile-tag">${esc(LOOKS[l].tagline)}</div>
+        </button>`).join('')}</div>` : ''}
+      <button class="locked-row" data-locked>
+        <span><b>Your shopping list</b><span class="small">In the order to buy, inside ${budgetLabel(p.budget)}</span></span>
+        <span class="lock">${LOCK}</span>
+      </button>
+      <button class="locked-row" data-locked>
+        <span><b>Your build guide</b><span class="small">What works on your frame, and what to avoid</span></span>
+        <span class="lock">${LOCK}</span>
+      </button>
+
+      <section class="offer">
+        <div class="overline">The full plan</div>
+        <div class="offer-price"><span class="serif">£${PRICE}</span><span>one-off. No subscription.</span></div>
+        <ul class="includes">
+          <li>All ${plural(p.lanes.length, 'look')}, piece by piece, with why each one works on you</li>
+          <li>Your shopping list in the order to buy, inside ${budgetLabel(p.budget)}</li>
+          <li>Swap anything: cheaper, another colour, something different</li>
+          <li>Your build guide, plus picks that learn from what you like</li>
+        </ul>
+        <button class="btn" id="buy">Get my full wardrobe</button>
+        <p class="fine">A personal stylist usually charges £150 or more for a single session.</p>
+      </section>
+      <button class="link-quiet" id="reset">Start again</button>
+    </div>`;
+}
+
+function renderCheckout() {
+  setFunnel(true);
+  const p = state.profile;
+  const pl = plan();
+  const first = p.lanes[0];
+  screen.innerHTML = `
+    <div class="checkout">
+      <button class="back plain" id="checkoutBack">‹ Back</button>
+      <div class="overline" style="margin-top:22px">Checkout</div>
+      <h1 class="serif">Your full wardrobe plan</h1>
+      <section class="order">
+        <div class="order-item">
+          <div class="order-fig" style="--tint:${LOOKS[first].tint}">${avatarSVG(pl.looks[first])}</div>
+          <div class="meta">
+            <div class="name">Full wardrobe plan</div>
+            <div class="small">${plural(p.lanes.length, 'look')} · ${plural(pl.pieceCount, 'piece')} · build guide</div>
+          </div>
+          <div class="price">£${PRICE}.00</div>
+        </div>
+        <div class="order-line"><span>Subscription</span><span>None</span></div>
+        <div class="order-total"><span>Total today</span><span class="serif">£${PRICE}.00</span></div>
+      </section>
+      ${p.email ? `<p class="for">Plan for <b>${esc(p.email)}</b></p>` : ''}
+      <button class="btn" id="pay">Pay £${PRICE}</button>
+      <p class="fine">One payment. No subscription. Access straight away.</p>
+    </div>`;
+}
+
+// Fake door: logs the click as buying intent, takes no payment, then opens the plan.
+function pay() {
+  const p = state.profile;
+  record('checkout-clicks', {
+    name: p.name || '', email: p.email || '', price: `£${PRICE}`, looks: p.lanes.join(', '), budget: budgetLabel(p.budget),
+  });
+  screen.innerHTML = `
+    <div class="reveal">
+      <div class="seal">✓</div>
+      <h1 class="serif">You’re early.</h1>
+      <p class="lede">Payments aren’t switched on yet, so you haven’t been charged. You’re one of the first people to try this, so the full wardrobe is yours free while we test it.</p>
+      <button class="btn" id="enter">See my full wardrobe</button>
+    </div>`;
+  window.scrollTo(0, 0);
+}
+
 function render() {
-  if (!state.profile) return startOnboarding();
+  if (!state.profile) return renderWelcome();
+  if (!state.unlocked) return state.view.checkout ? renderCheckout() : renderPreview();
+  setFunnel(false);
   const v = state.view;
   tabs.classList.remove('hidden');
   tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.tab === v.tab));
@@ -1499,7 +1777,11 @@ screen.addEventListener('click', (e) => {
   if (d.noteRemove) return removeNote(+d.noteRemove);
   if (t.id === 'addBtn') return addOwned();
   if (t.id === 'redo') return startOnboarding();
-  if (t.id === 'reset') { state = blank(); touch(); save(); startOnboarding(); }
+  if (t.id === 'reset') { state = blank(); touch(); save(); render(); window.scrollTo(0, 0); return; }
+  if (t.id === 'buy' || 'locked' in d) { state.view = { tab: 'home', look: null, checkout: true }; save(); render(); window.scrollTo(0, 0); return; }
+  if (t.id === 'checkoutBack') { state.view = { tab: 'home', look: null }; save(); render(); return; }
+  if (t.id === 'pay') return pay();
+  if (t.id === 'enter') { state.unlocked = true; state.view = { tab: 'home', look: null }; save(); render(); window.scrollTo(0, 0); }
 });
 
 screen.addEventListener('submit', (e) => {
