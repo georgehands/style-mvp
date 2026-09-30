@@ -13,7 +13,7 @@
   --heart: #b8322c;
   --warn: #9c3a2b;
   --studio: radial-gradient(circle at 50% 38%, #ffffff, #edece8 78%);
-  --serif: 'Bodoni Moda', 'Didot', 'Bodoni 72', Georgia, serif;
+  --serif: 'Fraunces', Georgia, serif;
   --sans: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --radius: 16px;
   --gold: #9a7a44;
@@ -60,7 +60,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .hidden { display: none !important; }
 
-.serif { font-family: var(--serif); font-weight: 500; letter-spacing: -0.015em; }
+body { font-variation-settings: 'opsz' 24; }
+.serif { font-family: var(--serif); font-weight: 500; letter-spacing: -0.02em; }
 h1 { margin: 0; text-wrap: balance; }
 h1.serif { font-size: 34px; line-height: 1.08; }
 .overline { font-size: 10.5px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
@@ -826,6 +827,62 @@ main > .ref-hero { margin-bottom: 14px; }
 .tier.on .tick { background: var(--gold); border-color: var(--gold); }
 .tier.on .tick::after { content: ''; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px; border: solid var(--gold-ink); border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .signin-link { margin-top: 18px; }
+
+/* ---------- Plan meter, face scan and colours ---------- */
+
+.stepcount { display: flex; align-items: baseline; gap: 5px; }
+.stepcount .built { margin-left: auto; font-style: normal; font-size: 11px; letter-spacing: .06em; text-transform: none; color: var(--muted); }
+
+.face-hero .serif { font-size: 27px; }
+.colour-msg { margin: 0 0 14px; padding: 12px 14px; border-radius: 14px; font-size: 13.5px; background: rgba(201, 128, 111, .12); border: 1px solid rgba(201, 128, 111, .35); color: var(--ink); }
+.face-scan { display: grid; gap: 22px; }
+.face-frame { position: relative; height: 300px; border-radius: 22px; overflow: hidden; background: var(--card); border: 1px solid rgba(214, 194, 154, .35); }
+.face-frame canvas { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scanline { position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--gold), transparent); box-shadow: 0 0 14px var(--gold); animation: scanMove 2.2s ease-in-out infinite; }
+@keyframes scanMove { 0%, 100% { top: 8%; } 50% { top: 90%; } }
+
+.palette-card { padding: 18px; border-radius: 22px; border: 1px solid rgba(214, 194, 154, .3); background: radial-gradient(120% 90% at 100% 0%, rgba(214, 194, 154, .14), rgba(214, 194, 154, .02) 60%), var(--card); margin-bottom: 12px; }
+.palette-card h3 { font-size: 28px; line-height: 1.1; margin: 6px 0 4px; font-weight: 500; }
+.palette-card > .small { margin: 0 0 14px; }
+.reads { display: flex; gap: 16px; flex-wrap: wrap; margin: 0 0 14px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, .03); border: 1px solid var(--line); }
+.read { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); }
+.read i, .pal-sw i, .sw-opt i { display: inline-block; flex: 0 0 auto; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18); }
+.read i { width: 20px; height: 20px; }
+.pal-label { font-size: 10.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 4px 0 8px; }
+.pal-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 6px; margin-bottom: 14px; }
+.pal-sw { display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 11px; text-align: center; color: var(--ink-soft); line-height: 1.2; }
+.pal-sw i { width: 34px; height: 34px; }
+.pal-grid.avoid .pal-sw { color: var(--muted); }
+.pal-grid.avoid .pal-sw i { opacity: .85; }
+.colour-actions { display: flex; gap: 22px; justify-content: center; margin: 6px 0 4px; }
+.text-link { background: none; border: none; padding: 0; font-size: 13.5px; font-weight: 600; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+
+.sw-pick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.sw-opt { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 14px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink); font-size: 13px; text-align: left; transition: border-color .2s ease, background .2s ease; }
+.sw-opt i { width: 22px; height: 22px; }
+.sw-opt.on { border-color: var(--gold); background: rgba(214, 194, 154, .1); box-shadow: inset 0 0 0 1px var(--gold); }
+
+/* ---------- Recap and claims before the plans ---------- */
+
+.recap { margin-top: 26px; padding: 18px 18px 8px; border-radius: 22px; background: var(--card); border: 1px solid var(--line); }
+.recap .overline { color: var(--gold); }
+.recap-h { font-size: 26px; line-height: 1.1; margin: 4px 0 12px; font-weight: 500; }
+.recap-row { display: grid; grid-template-columns: 104px 1fr; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.recap-row .k { color: var(--muted); font-size: 12.5px; padding-top: 1px; }
+.claims { display: grid; gap: 10px; }
+.claim { display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px; border-radius: 18px; background: var(--card); border: 1px solid var(--line); }
+.claim .n { flex: 0 0 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--gold); color: var(--gold-ink); }
+.claim b { display: block; font-size: 15px; font-weight: 600; margin-bottom: 3px; }
+.claim .small { display: block; font-size: 13.5px; line-height: 1.45; }
+
+/* ---------- Timeless and trend tags, foundation ---------- */
+
+.ptag { display: inline-block; vertical-align: middle; margin-left: 8px; font-size: 9.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; padding: 3px 7px; border-radius: 999px; }
+.ptag.timeless { background: rgba(154, 122, 68, .14); color: var(--gold); }
+.ptag.trend { background: var(--line); color: var(--muted); }
+.foundation > .small { margin: 14px 0 4px; }
+.foundation button.row-item { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.foundation button.row-item:last-child { border-bottom: none; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

@@ -33,7 +33,9 @@ const blankProfile = () => ({
   goals: [], goalText: '',
   height: '', shape: '', broad: false, flags: [], chest: '', waist: '', inseam: '', shoe: '',
   work: '', gym: '', out: '', weekends: [],
+  playDown: [], proud: [],
   fit: '', colours: '', never: [],
+  colour: null, colourSkipped: false, cSkin: '', cUnder: '', cHair: '', cEye: '',
   refMode: '', refImage: null, refPalette: null, refSummary: '',
   lanes: [], budget: 300, monthly: '',
   name: '', email: '', optIn: false,
@@ -54,6 +56,9 @@ let lastFill = [];
 let guideKey = 'chest';
 let assessKey = '';
 let assessDone = false;
+let colourUI = '';
+let colourMsg = '';
+let facePreloaded = false;
 
 const ACCOUNTS_KEY = 'style-accounts-v1';
 
@@ -312,6 +317,7 @@ const COLOUR_WORDS = {
   'Earth tones': 'olive, tan, stone and brown',
   'Happy with some colour': 'neutrals with one colour per outfit',
 };
+const weekLine = (p) => cap([p.work && p.work.replace(/^Office, (\w+)$/, (_, w) => `${w} office`), p.gym && p.gym !== 'Rarely' && `gym ${p.gym}`, p.out && p.out !== 'Rarely' && `out ${p.out.toLowerCase()}`].filter(Boolean).join(', '));
 const buildFlag = (p) => p.flags.find((f) => f !== 'Average') || (p.flags.length ? 'Average' : null);
 
 // Sends a row to Netlify Forms. Only runs where the matching hidden form exists (the Netlify build), never in the claude.ai copy.
@@ -458,13 +464,314 @@ function assess(d) {
 
   const keys = [hc, shape !== 'Average' ? shape : null, broad ? 'Broad shoulders' : null].filter(Boolean);
   if (ratio && ratio <= 0.43 && hc !== 'Shorter') keys.push('Short legs');
-  if (keys.length < 2) keys.push('Average');
+  if (keys.length < 2 && !(d.playDown || []).length) keys.push('Average');
   const size = hc || 'Mid-height';
   const build = { Slim: 'slim', Average: 'medium', Athletic: 'athletic', 'Carrying some weight': 'fuller' }[shape];
-  return { name: `${size}, ${build} frame`, facts, strategies: [...new Set(keys)].slice(0, 3).map((k) => ({ key: k, ...STRATEGY[k] })) };
+  const frame = [...new Set(keys)].map((k) => ({ key: k, ...STRATEGY[k] }));
+  const body = (d.playDown || []).filter((k) => BODY_STRATEGY[k]).map((k) => ({ key: k, ...BODY_STRATEGY[k] }));
+  const proud = (d.proud || []).filter((k) => PROUD_STRATEGY[k]).slice(0, 1).map((k) => ({ key: `proud:${k}`, ...PROUD_STRATEGY[k] }));
+  const seen = new Set();
+  const strategies = [...frame.slice(0, 2), ...body.slice(0, 1), ...proud, ...body.slice(1, 2), ...frame.slice(2)]
+    .filter((x) => !seen.has(x.title) && seen.add(x.title))
+    .slice(0, 4);
+  return { name: `${size}, ${build} frame`, facts, strategies };
 }
 
-const frameKey = (d) => JSON.stringify([d.height, d.shape, d.broad, d.chest, d.waist, d.inseam]);
+const frameKey = (d) => JSON.stringify([d.height, d.shape, d.broad, d.chest, d.waist, d.inseam, d.playDown, d.proud]);
+
+// ---------- Styled around him: what he'd play down, what he's proud of ----------
+
+const PLAY_DOWN = ['My stomach', 'My chest', 'Narrow shoulders', 'Slim arms', 'Wide hips', 'Thin legs', 'Short legs', 'My height'];
+const PROUD = ['Shoulders', 'Chest', 'Arms', 'Legs', 'Slim waist', 'My height'];
+
+const BODY_STRATEGY = {
+  'My stomach': {
+    title: 'Draw the eye past your middle',
+    why: 'A long, clean line down the front stops the eye settling on your stomach.',
+    do: ['An overshirt or jacket worn open', 'Tops in structured cotton that skim instead of cling', 'Darker colours through the middle'],
+    avoid: ['Tucked-in tees', 'Clingy knits and shiny fabric', 'A contrasting belt'],
+  },
+  'My chest': {
+    title: 'A cleaner line across the chest',
+    why: 'Structure and a layer on top smooth the chest so nothing clings.',
+    do: ['Heavyweight tees that hold their shape', 'An open overshirt or soft jacket on top', 'Darker or textured fabrics up top'],
+    avoid: ['Thin, clingy tees', 'Tight fits across the chest', 'Light, shiny fabrics'],
+  },
+  'Narrow shoulders': {
+    title: 'Build out your shoulders',
+    why: 'Structure and detail up top add width where you want it.',
+    do: ['Overshirts and jackets with a defined shoulder', 'Detail up top: chest pockets, yokes, texture', 'Crew necks over deep V-necks'],
+    avoid: ['Raglan sleeves', 'Deep V-necks'],
+  },
+  'Slim arms': {
+    title: 'Frame your arms',
+    why: 'The right sleeve makes slim arms look solid.',
+    do: ['Sleeves that end mid-bicep', 'Heavier fabric that holds its shape', 'A shirt or overshirt as a layer'],
+    avoid: ['Wide, floppy sleeves', 'Vests outside the gym'],
+  },
+  'Wide hips': {
+    title: 'Balance your hips',
+    why: 'Interest up top evens out your proportions.',
+    do: ['Straight-leg trousers in darker colours', 'Lighter colours and detail up top', 'Tops that end just below the hip'],
+    avoid: ['Skinny jeans', 'Bulky pockets at the hip'],
+  },
+  'Thin legs': {
+    title: 'Give your legs some weight',
+    why: 'A straight leg and heavier fabric stop slim legs looking lost.',
+    do: ['Straight or relaxed trousers', 'Heavier denim and cotton', 'A solid shoe'],
+    avoid: ['Skinny fits', 'Very chunky tops over slim legs'],
+  },
+  'Short legs': STRATEGY['Short legs'],
+  'My height': STRATEGY.Shorter,
+};
+
+const UPPER_PROUD = {
+  title: 'Show off your top half',
+  why: 'You’re proud of it, so the cut should let people see it.',
+  do: ['Tees and knits that fit the chest and arms', 'Short sleeves that sit on the upper arm', 'A layer you can wear open'],
+  avoid: ['Boxy, oversized tops that hide your shape'],
+};
+const PROUD_STRATEGY = {
+  Shoulders: {
+    title: 'Show your shoulders',
+    why: 'Your shoulders do the hard work, so keep the line clean.',
+    do: ['Tops with a clean, unpadded shoulder seam', 'Crew necks and knitted polos', 'Jackets that fit at the shoulder'],
+    avoid: ['Dropped shoulders and oversized cuts'],
+  },
+  Chest: UPPER_PROUD,
+  Arms: {
+    title: 'Show your arms',
+    why: 'You’ve worked on them, so let the sleeve do the talking.',
+    do: ['Short sleeves that sit on the upper arm', 'Shirt sleeves rolled to just below the elbow', 'A watch to draw the eye to your wrist'],
+    avoid: ['Long, baggy sleeves'],
+  },
+  Legs: {
+    title: 'Show your legs',
+    why: 'A clean, tapered line shows the shape you’ve got.',
+    do: ['Tapered trousers that follow the leg', 'Shorts that end above the knee in summer'],
+    avoid: ['Baggy trousers that bunch at the ankle'],
+  },
+  'Slim waist': {
+    title: 'Show the taper',
+    why: 'A defined waist is the thing most cuts try to fake.',
+    do: ['Tops tucked in or ending at the belt', 'A clean leather belt'],
+    avoid: ['Long, loose tops that cover the waist'],
+  },
+  'My height': {
+    title: 'Wear your height',
+    why: 'You don’t need tricks. Longer layers suit you.',
+    do: ['Hip-length and longer layers', 'Contrast between top and bottom'],
+    avoid: ['Cropped hems that show too much ankle'],
+  },
+};
+
+const lum = (hex) => hexToRgb(hex).reduce((a, v) => a + v, 0) / 765;
+
+// Nudges picks towards cuts that suit what he told us. Kept private: reasons only ever say "your frame".
+function bodyBonus(it) {
+  const p = state.profile;
+  const down = p.playDown || [];
+  const proud = p.proud || [];
+  if (!down.length && !proud.length) return 0;
+  const fam = it.family;
+  const f = fitOf(it);
+  const middle = down.includes('My chest') || down.includes('My stomach');
+  let s = 0;
+  if (it.slot === 'Top') {
+    if (middle) {
+      if (f === 'Slim') s -= 1.5;
+      if (fam === 'tee_budget') s -= 0.8;
+      if (['tee_heavy', 'oxford', 'linen'].includes(fam)) s += 0.8;
+      if (lum(it.hex) < 0.35) s += 0.4;
+    }
+    if (down.includes('Slim arms') && fam === 'tank') s -= 2;
+    if (['Shoulders', 'Chest', 'Arms'].some((x) => proud.includes(x)) && !middle) {
+      if (f === 'Slim') s += 1;
+      if (/boxy/i.test(it.fit)) s -= 0.8;
+    }
+  }
+  if (it.slot === 'Layer') {
+    if (middle && ['overshirt', 'blazer', 'denim_jacket'].includes(fam)) s += 1;
+    if (down.includes('Narrow shoulders') && ['overshirt', 'denim_jacket', 'bomber', 'blazer'].includes(fam)) s += 0.8;
+  }
+  if (it.slot === 'Bottom') {
+    if (down.includes('Thin legs') || down.includes('Wide hips')) {
+      if (f === 'Slim') s -= 1;
+      if (['jeans', 'jeans_budget', 'cargo'].includes(fam)) s += 0.6;
+    }
+    if (down.includes('My stomach') && lum(it.hex) < 0.3) s += 0.3;
+    if (proud.includes('Legs') && fam === 'chinos') s += 0.5;
+  }
+  if (it.slot === 'Shoes' && down.includes('My height') && fam === 'chelsea') s += 0.8;
+  if (it.slot === 'Accessory' && proud.includes('Slim waist') && fam === 'belt') s += 0.8;
+  return s;
+}
+
+// ---------- Colours: read from a selfie on the phone, or picked ----------
+
+const SEASONS = {
+  Autumn: {
+    name: 'Deep and warm',
+    line: 'Earthy, rich colours bring out the warmth in your skin.',
+    suits: [['Olive', '#4E5238'], ['Camel', '#B98A55'], ['Chocolate', '#5A3E2B'], ['Rust', '#9A4B2C'], ['Cream', '#EFE6D2'], ['Forest green', '#2F4A38'], ['Tan', '#B08A5E'], ['Stone', '#CFC4AE']],
+    avoid: [['Bright white', '#FFFFFF'], ['Icy grey', '#C9CED6'], ['Hot pink', '#E0457B']],
+  },
+  Spring: {
+    name: 'Light and warm',
+    line: 'Clear, warm colours keep you looking fresh instead of washed out.',
+    suits: [['Cream', '#F3EBD8'], ['Camel', '#C49A64'], ['Warm navy', '#2E3C5A'], ['Sage', '#9AA67E'], ['Coral', '#E07A5F'], ['Stone', '#D8CDB5'], ['Light tan', '#C9A77C'], ['Sky blue', '#8FB3D9']],
+    avoid: [['Black', '#111111'], ['Charcoal', '#333333'], ['Cold grey', '#8A8F98']],
+  },
+  Summer: {
+    name: 'Soft and cool',
+    line: 'Muted, cool colours sit gently against your skin.',
+    suits: [['Soft navy', '#3B4A63'], ['Slate', '#6B7A8C'], ['Light blue', '#A8BCD4'], ['Grey', '#8A8C90'], ['Dusty rose', '#C49A9A'], ['Soft white', '#F2F2EE'], ['Charcoal', '#4A4D52'], ['Lavender grey', '#A9A6B8']],
+    avoid: [['Orange', '#E07B28'], ['Mustard', '#C9A227'], ['Jet black', '#0A0A0A']],
+  },
+  Winter: {
+    name: 'Clear and cool',
+    line: 'Crisp, high-contrast colours match the contrast in your features.',
+    suits: [['Black', '#111111'], ['Pure white', '#FFFFFF'], ['Navy', '#1F2A44'], ['Charcoal', '#333333'], ['Icy blue', '#BFD4EA'], ['Burgundy', '#5E2230'], ['Emerald', '#1F5E4A'], ['Grey', '#8A8C90']],
+    avoid: [['Camel', '#B98A55'], ['Orange', '#E07B28'], ['Beige', '#D6C7A6']],
+  },
+};
+
+const PICK_SKIN = [['Very fair', '#F3D9C6'], ['Fair', '#E8C1A0'], ['Medium', '#D2A07A'], ['Olive', '#B98A5E'], ['Brown', '#8D5A3B'], ['Deep', '#5A3825']];
+const PICK_UNDER = ['Warm', 'Cool', 'Not sure'];
+const PICK_HAIR = [['Black', '#1B1714'], ['Dark brown', '#3B2A20'], ['Mid brown', '#6A4B35'], ['Blonde', '#B89A6A'], ['Red or ginger', '#8E4A2A'], ['Grey or none', '#9A9590']];
+const PICK_EYE = [['Brown', '#4A2E1E'], ['Hazel', '#7A6232'], ['Green', '#5E7A4A'], ['Blue', '#5C7FA8'], ['Grey', '#7E8A92']];
+
+function toLab([r, g, b]) {
+  const lin = (v) => { v /= 255; return v > 0.04045 ? ((v + 0.055) / 1.055) ** 2.4 : v / 12.92; };
+  const [R, G, B] = [lin(r), lin(g), lin(b)];
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const x = f((0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047);
+  const y = f(0.2126 * R + 0.7152 * G + 0.0722 * B);
+  const z = f((0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883);
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+}
+const hueOf = (lab) => (Math.atan2(lab[2], lab[1]) * 180) / Math.PI;
+
+// Skin depth, undertone and skin-to-hair contrast pick one of four palettes. A likely fit, not a verdict.
+function classifyColour({ skin, hair, eye, under, source }) {
+  const s = toLab(hexToRgb(skin));
+  // Phone photos come out brighter than skin really is, so a scan needs a higher bar for "light".
+  const [lightCut, deepCut] = source === 'scan' ? [74, 58] : [72, 52];
+  const depth = s[0] > lightCut ? 'light' : s[0] > deepCut ? 'medium' : 'deep';
+  let u = under;
+  if (!u) {
+    const h = hueOf(s);
+    u = h >= 58 ? 'warm' : h <= 52 ? 'cool' : null;
+  }
+  if (!u) {
+    const hl = hair ? toLab(hexToRgb(hair)) : null;
+    u = hl && hl[2] > 12 && hueOf(hl) > 45 ? 'warm' : hl ? 'cool' : 'warm';
+  }
+  const gap = hair ? Math.abs(s[0] - toLab(hexToRgb(hair))[0]) : 28;
+  const contrast = gap > 38 ? 'high' : gap < 20 ? 'low' : 'medium';
+  const season = u === 'warm'
+    ? (depth === 'light' && contrast !== 'high' ? 'Spring' : 'Autumn')
+    : (contrast === 'high' || depth === 'deep' ? 'Winter' : 'Summer');
+  const S = SEASONS[season];
+  return { source, skin, hair, eye, depth, under: u, contrast, season, name: S.name, line: S.line, suits: S.suits, avoid: S.avoid };
+}
+
+function colourFromPicks(d) {
+  const skin = PICK_SKIN.find(([n]) => n === d.cSkin)?.[1];
+  const hair = PICK_HAIR.find(([n]) => n === d.cHair)?.[1];
+  const eye = PICK_EYE.find(([n]) => n === d.cEye)?.[1];
+  if (!skin || !hair || !eye || !d.cUnder) return null;
+  const under = { Warm: 'warm', Cool: 'cool' }[d.cUnder] || null;
+  return classifyColour({ skin, hair, eye, under, source: 'picked' });
+}
+
+function colourNear(it, list) {
+  return Math.min(...list.map(([, hex]) => dist(hexToRgb(it.hex), hexToRgb(hex))));
+}
+function colourBonus(it) {
+  const c = state.profile.colour;
+  if (!c) return 0;
+  return Math.max(0, 1.6 - colourNear(it, c.suits) / 45) - Math.max(0, 1.2 - colourNear(it, c.avoid) / 40);
+}
+
+// The face model runs in the browser. The selfie is never uploaded or saved.
+const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+let facePromise = null;
+function faceModel() {
+  facePromise ||= (async () => {
+    const v = await import(`${MP}/vision_bundle.mjs`);
+    const files = await v.FilesetResolver.forVisionTasks(`${MP}/wasm`);
+    return v.FaceLandmarker.createFromOptions(files, {
+      baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task' },
+      runningMode: 'IMAGE',
+      numFaces: 1,
+    });
+  })().catch((e) => { facePromise = null; throw e; });
+  return facePromise;
+}
+
+// Average of a patch, ignoring the brightest and darkest pixels (shine, shadow, lashes).
+function sampleAt(img, pts, r, trimLo = 0.2, trimHi = 0.2) {
+  const px = [];
+  const { data, width, height } = img;
+  pts.forEach(([cx, cy]) => {
+    for (let y = Math.round(cy - r); y <= cy + r; y++) {
+      for (let x = Math.round(cx - r); x <= cx + r; x++) {
+        if (x < 0 || y < 0 || x >= width || y >= height || (x - cx) ** 2 + (y - cy) ** 2 > r * r) continue;
+        const i = (y * width + x) * 4;
+        px.push([data[i], data[i + 1], data[i + 2]]);
+      }
+    }
+  });
+  if (px.length < 6) return null;
+  px.sort((a, b) => a[0] + a[1] + a[2] - (b[0] + b[1] + b[2]));
+  const keep = px.slice(Math.floor(px.length * trimLo), Math.ceil(px.length * (1 - trimHi)));
+  const avg = [0, 1, 2].map((k) => keep.reduce((sum, p) => sum + p[k], 0) / keep.length);
+  return rgbToHex(...avg);
+}
+
+function readSkin(img, lm) {
+  const W = img.width, H = img.height;
+  const P = (i) => [lm[i].x * W, lm[i].y * H];
+  const faceW = dist([...P(234), 0], [...P(454), 0]);
+  // Lean away from highlights: shine on cheekbones and forehead reads lighter than the skin really is.
+  return sampleAt(img, [50, 280, 187, 411, 205, 425, 151, 108, 337, 36, 266].map(P), Math.max(2, faceW * 0.035), 0.1, 0.5);
+}
+
+function readEyes(img, lm) {
+  const W = img.width, H = img.height;
+  const P = (i) => [lm[i].x * W, lm[i].y * H];
+  if (lm.length < 478) return null;
+  const r = Math.max(1.5, dist([...P(468), 0], [...P(469), 0]) * 0.7);
+  return sampleAt(img, [P(468), P(473)], r, 0.25, 0.35);
+}
+
+function readHair(img, lm, skin) {
+  const W = img.width, H = img.height;
+  const P = (i) => [lm[i].x * W, lm[i].y * H];
+  const top = P(10), chin = P(152);
+  const len = dist([...top, 0], [...chin, 0]);
+  const up = [(top[0] - chin[0]) / len, (top[1] - chin[1]) / len];
+  const faceW = dist([...P(234), 0], [...P(454), 0]);
+  // The mesh stops below the hairline, so step upwards until the colour clearly isn't skin.
+  for (let f = 0.08; f <= 0.3; f += 0.04) {
+    const pts = [10, 103, 332].map((i) => { const q = P(i); return [q[0] + up[0] * len * f, q[1] + up[1] * len * f]; });
+    if (pts.some(([, y]) => y < 0)) return null;
+    const hair = sampleAt(img, pts, Math.max(2, faceW * 0.03));
+    if (hair && dist(hexToRgb(hair), hexToRgb(skin)) >= 45) return hair;
+  }
+  return null;
+}
+
+// ---------- Timeless essentials ----------
+
+const TIMELESS = new Set(['tee_heavy', 'tee_budget', 'oxford', 'polo_knit', 'linen', 'jeans', 'jeans_budget', 'chinos', 'tailored', 'trainers', 'trainers_premium', 'loafers', 'chelsea', 'desert', 'canvas', 'overshirt', 'denim_jacket', 'merino', 'cable', 'blazer', 'watch_steel', 'watch_leather', 'belt']);
+const FASHION_COLOURS = new Set(['Pale pink', 'Light wash']);
+const UNTAGGED = new Set(['tee_train', 'tank', 'shorts_train', 'runners', 'qzip', 'holdall', 'scent']);
+const isTimeless = (it) => TIMELESS.has(it.family) && !FASHION_COLOURS.has(it.colour);
+const pieceTag = (it) => (!it.family || UNTAGGED.has(it.family) ? '' : isTimeless(it)
+  ? '<span class="ptag timeless">Timeless</span>'
+  : '<span class="ptag trend">Trend piece</span>');
 
 function strategyCard(s) {
   return `
@@ -673,6 +980,21 @@ const STEPS = [
   },
   {
     chapter: 0,
+    title: 'Anything you’d rather play down?',
+    sub: 'Only you see this. It decides the cuts, layers and colours we pick, and it’s never shown to anyone.',
+    render: () => `
+      ${question('I’d rather play down', 'playDown', PLAY_DOWN, true, 'optional')}
+      ${question('I’m proud of', 'proud', PROUD, true, 'optional')}`,
+    valid: () => true,
+    note: () => {
+      const parts = [draft.playDown.length && 'draw the eye away from what you’d rather play down', draft.proud.length && 'show off what you’re proud of'].filter(Boolean);
+      return parts.length
+        ? { label: 'Stylist note', text: `Got it. Every cut and layer will ${parts.join(' and ')}. This stays between you and your stylist.` }
+        : { label: 'Stylist note', text: 'Nothing to play down? Just continue.' };
+    },
+  },
+  {
+    chapter: 0,
     title: 'Reading your frame.',
     sub: 'Your answers, checked against what works on a build like yours.',
     render: assessHTML,
@@ -708,6 +1030,18 @@ const STEPS = [
       const never = draft.never.length ? ` No ${listJoin(draft.never.map((n) => n.toLowerCase()))}, anywhere.` : '';
       return { label: 'Stylist note', text: `${draft.fit} cuts in ${COLOUR_WORDS[draft.colours]}.${never}` };
     },
+  },
+  {
+    chapter: 1,
+    title: 'Find your colours.',
+    sub: 'One selfie tells us which colours suit your skin, hair and eyes. It’s read on your phone and never uploaded or saved.',
+    enter: () => { if (!facePreloaded) { facePreloaded = true; faceModel().catch(() => {}); } },
+    render: colourStepHTML,
+    mount: mountColourStep,
+    valid: () => colourUI !== 'scanning' && !!(draft.colour || draft.colourSkipped),
+    note: () => (draft.colour && colourUI !== 'scanning'
+      ? { label: 'Stylist note', text: `${draft.colour.name}. Your picks now lean towards ${listJoin(draft.colour.suits.slice(0, 3).map(([n]) => n.toLowerCase()))}.` }
+      : null),
   },
   {
     chapter: 1,
@@ -797,6 +1131,205 @@ const STEPS = [
   },
 ];
 
+// ---------- Colour step ----------
+
+const FACE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="10.5" r="3"/><path d="M8.2 17c.9-1.5 2.2-2.2 3.8-2.2s2.9.7 3.8 2.2"/></svg>';
+
+const swatchQ = (title, key, list) => `
+  <div class="qblock">
+    <div class="qtitle">${title}</div>
+    <div class="sw-pick" data-single="${key}">${list.map(([n, hex]) => `
+      <button type="button" class="sw-opt${draft[key] === n ? ' on' : ''}" data-val="${esc(n)}"><i style="background:${hex}"></i>${esc(n)}</button>`).join('')}
+    </div>
+  </div>`;
+
+function colourResultHTML(c) {
+  const read = (hex, label) => (hex ? `<span class="read"><i style="background:${esc(hex)}"></i>${label}</span>` : '');
+  const sw = (list) => list.map(([n, hex]) => `<span class="pal-sw"><i style="background:${esc(hex)}"></i>${esc(n)}</span>`).join('');
+  return `
+    <section class="palette-card">
+      <div class="note-label">Your colours · ${c.source === 'scan' ? 'read from your selfie' : 'from what you picked'}</div>
+      <h3 class="serif">${esc(c.name)}</h3>
+      <p class="small">${esc(c.line)}</p>
+      ${c.source === 'scan' ? `<div class="reads">${read(c.skin, 'Skin')}${read(c.hair, 'Hair')}${read(c.eye, 'Eyes')}</div>` : ''}
+      <div class="pal-label">Wear more of</div>
+      <div class="pal-grid">${sw(c.suits)}</div>
+      <div class="pal-label">Go easy on</div>
+      <div class="pal-grid avoid">${sw(c.avoid)}</div>
+      <p class="fine left">A starting point, not a rule. Lighting changes what a camera sees.</p>
+    </section>`;
+}
+
+function colourStepHTML() {
+  if (colourUI === 'scanning') return `
+    <div class="face-scan">
+      <div class="face-frame"><canvas id="faceCanvas"></canvas><span class="scanline"></span></div>
+      ${barsHTML(['Finding your face', 'Reading your skin tone', 'Checking your hair and eyes', 'Matching your palette'])}
+    </div>`;
+  const msg = colourMsg ? `<p class="colour-msg">${esc(colourMsg)}</p>` : '';
+  if (colourUI === 'pick') return `${msg}
+    <div id="colourPick">
+      ${swatchQ('Your skin tone', 'cSkin', PICK_SKIN)}
+      ${question('Your undertone', 'cUnder', PICK_UNDER, false, 'veins on your wrist look greenish if warm, bluish if cool')}
+      ${swatchQ('Your hair', 'cHair', PICK_HAIR)}
+      ${swatchQ('Your eyes', 'cEye', PICK_EYE)}
+    </div>
+    <div id="colourResult">${draft.colour?.source === 'picked' ? colourResultHTML(draft.colour) : ''}</div>
+    <button type="button" class="hint-link" data-colour="scan">Use a selfie instead</button>`;
+  if (draft.colour) return `${colourResultHTML(draft.colour)}
+    <div class="colour-actions">
+      <button type="button" class="text-link" data-colour="scan">Scan again</button>
+      <button type="button" class="text-link" data-colour="pick">Pick them myself</button>
+    </div>`;
+  return `${msg}
+    <label class="ref-hero face-hero">
+      <input type="file" accept="image/*" capture="user" data-face-file hidden>
+      <span class="ref-hero-icon">${FACE_ICON}</span>
+      <span class="serif">Scan my face</span>
+      <span class="small">Face a window in daylight. No filter, no glasses.</span>
+      <span class="ref-gets"><span>Read on your phone</span><span>Never uploaded</span><span>Never saved</span></span>
+    </label>
+    <button type="button" class="ref-skip" data-colour="pick">
+      <span><b>Pick my colours myself</b><span class="small">Choose your skin tone, hair and eyes from swatches.</span></span>
+      <span class="tick"></span>
+    </button>
+    <button type="button" class="link-quiet" data-colour="skip">Skip this step</button>`;
+}
+
+function mountColourStep() {
+  const file = screen.querySelector('[data-face-file]');
+  if (file) file.addEventListener('change', () => { if (file.files[0]) scanFace(file.files[0]); });
+  screen.querySelectorAll('[data-colour]').forEach((b) => b.addEventListener('click', () => {
+    const act = b.dataset.colour;
+    colourMsg = '';
+    if (act === 'skip') { draft.colour = null; draft.colourSkipped = true; step++; renderStep(1); window.scrollTo(0, 0); return; }
+    if (act === 'pick') { colourUI = 'pick'; draft.colour = colourFromPicks(draft); }
+    if (act === 'scan') { colourUI = ''; draft.colour = null; }
+    renderStep();
+  }));
+  const pickEl = screen.querySelector('#colourPick');
+  if (pickEl) pickEl.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-val]')) return;
+    draft.colour = colourFromPicks(draft);
+    if (draft.colour) draft.colourSkipped = false;
+    screen.querySelector('#colourResult').innerHTML = draft.colour ? colourResultHTML(draft.colour) : '';
+    refreshNext();
+  });
+}
+
+// One progress row per real stage: it creeps while the work runs and completes when the work does.
+function stage(root, i, work) {
+  const row = root.querySelectorAll('.brow')[i];
+  const fill = row.querySelector('.btrack span');
+  const pct = row.querySelector('.pct');
+  row.classList.add('active');
+  let done = false;
+  let err = null;
+  const t0 = performance.now();
+  Promise.resolve().then(work).catch((e) => { err = e; }).finally(() => { done = true; });
+  return new Promise((res, rej) => {
+    let doneAt = null;
+    let from = 0;
+    const tick = (now) => {
+      if (!row.isConnected) { rej(new Error('left')); return; }
+      if (done && err) { rej(err); return; }
+      const t = (now - t0) / 1000;
+      let v = 0.9 * (1 - Math.exp(-t * 2.2));
+      if (done && t > 0.6) {
+        if (doneAt === null) { doneAt = now; from = v; }
+        v = from + (1 - from) * Math.min(1, (now - doneAt) / 220);
+      }
+      fill.style.width = `${v * 100}%`;
+      pct.textContent = `${Math.round(v * 100)}%`;
+      if (doneAt !== null && now - doneAt >= 220) { row.classList.add('done'); res(); return; }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+// Zooms the view onto the face, then lays the detected landmarks over it point by point.
+function drawMesh(cv, src, lm) {
+  const W = src.width, H = src.height;
+  const xs = lm.map((p) => p.x * W);
+  const ys = lm.map((p) => p.y * H);
+  const size = Math.min(W, H, Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 1.9);
+  const x0 = Math.max(0, Math.min(W - size, (Math.max(...xs) + Math.min(...xs)) / 2 - size / 2));
+  const y0 = Math.max(0, Math.min(H - size, (Math.max(...ys) + Math.min(...ys)) / 2 - size / 2));
+  cv.width = 480;
+  cv.height = 480;
+  const k = 480 / size;
+  const ctx = cv.getContext('2d');
+  return new Promise((res) => {
+    const t0 = performance.now();
+    const tick = (now) => {
+      if (!cv.isConnected) { res(); return; }
+      const t = Math.min(1, (now - t0) / 900);
+      ctx.drawImage(src, x0, y0, size, size, 0, 0, 480, 480);
+      ctx.fillStyle = 'rgba(10, 11, 10, .3)';
+      ctx.fillRect(0, 0, 480, 480);
+      ctx.fillStyle = '#e7c98f';
+      const n = Math.floor(lm.length * t);
+      for (let i = 0; i < n; i++) {
+        ctx.beginPath();
+        ctx.arc((xs[i] - x0) * k, (ys[i] - y0) * k, 1.6, 0, 7);
+        ctx.fill();
+      }
+      if (t < 1) requestAnimationFrame(tick); else res();
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+async function scanFace(file) {
+  if (!file.type.startsWith('image/')) { colourMsg = 'That doesn’t look like a photo. Try again.'; renderStep(); return; }
+  colourUI = 'scanning';
+  colourMsg = '';
+  renderStep();
+  const root = screen.querySelector('.face-scan');
+  const cv = screen.querySelector('#faceCanvas');
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const k = Math.min(1, 720 / Math.max(img.width, img.height));
+    const src = document.createElement('canvas');
+    src.width = Math.round(img.width * k);
+    src.height = Math.round(img.height * k);
+    const sctx = src.getContext('2d', { willReadFrequently: true });
+    sctx.drawImage(img, 0, 0, src.width, src.height);
+    const pixels = sctx.getImageData(0, 0, src.width, src.height);
+    cv.width = src.width;
+    cv.height = src.height;
+    cv.getContext('2d').drawImage(src, 0, 0);
+    let lm;
+    let skin;
+    let hair;
+    let eye;
+    let result;
+    await stage(root, 0, async () => {
+      const model = await faceModel();
+      lm = model.detect(src).faceLandmarks?.[0];
+      if (!lm) throw new Error('no-face');
+      await drawMesh(cv, src, lm);
+    });
+    await stage(root, 1, () => { skin = readSkin(pixels, lm); if (!skin) throw new Error('no-face'); });
+    await stage(root, 2, () => { eye = readEyes(pixels, lm); hair = readHair(pixels, lm, skin); });
+    await stage(root, 3, () => { result = classifyColour({ skin, hair, eye, under: null, source: 'scan' }); });
+    draft.colour = result;
+    draft.colourSkipped = false;
+  } catch (e) {
+    if (e?.message !== 'left') {
+      colourMsg = e?.message === 'no-face'
+        ? 'We couldn’t find a face in that photo. Try again facing a window, or pick your colours yourself.'
+        : 'The scan couldn’t run on this device. Pick your colours yourself instead, it takes 20 seconds.';
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+    colourUI = '';
+  }
+  if (onboarding && STEPS[step].render === colourStepHTML) renderStep();
+}
+
 function startOnboarding() {
   onboarding = true;
   closeSheet();
@@ -804,6 +1337,8 @@ function startOnboarding() {
   if (!draft.shape && draft.flags.length) { draft.shape = shapeOf(draft); draft.broad = broadOf(draft); }
   step = 0;
   lastFill = [];
+  colourUI = '';
+  colourMsg = '';
   setFunnel(true);
   renderStep(1);
 }
@@ -824,7 +1359,7 @@ function renderStep(dir = 0) {
         <span></span>
       </div>
       <div class="chapters">${CHAPTERS.map((_, ci) => `<div class="chap"><span style="width:${lastFill[ci] ?? 0}%"></span></div>`).join('')}</div>
-      <div class="stepcount">${CHAPTERS[s.chapter]} <span>· ${pos + 1} of ${inCh.length}</span></div>
+      <div class="stepcount">${CHAPTERS[s.chapter]} <span>· ${pos + 1} of ${inCh.length}</span><em class="built">Your plan: ${Math.round((step / STEPS.length) * 100)}% built</em></div>
     </div>
     <div class="onb${dir > 0 ? ' fwd' : dir < 0 ? ' bwd' : ' still'}">
       <h1 class="serif">${s.title}</h1>
@@ -943,9 +1478,10 @@ function finishOnboarding() {
       <div class="big-pct serif" id="bigPct">0%</div>
       ${barsHTML([
         `Reading your ${a.name.toLowerCase()}`,
-        'Matching every cut to your strategy',
+        draft.playDown.length || draft.proud.length ? 'Styling around what you told us' : 'Matching every cut to your strategy',
+        draft.colour ? `Matching colours to your ${draft.colour.name.toLowerCase()} palette` : 'Choosing colours that work together',
         `Building ${plural(draft.lanes.length, 'look')} around your week`,
-        `Fitting it all into ${budgetLabel(draft.budget)}`,
+        `Putting timeless pieces first, inside ${budgetLabel(draft.budget)}`,
       ])}
     </div>`;
   window.scrollTo(0, 0);
@@ -1050,6 +1586,8 @@ function score(id, look) {
   if (p.colours === 'Earth tones' && t === 'earth') s += 1.5;
   if (p.colours === 'Happy with some colour' && t === 'colour') s += 1;
   if (p.refPalette) s += Math.max(0, 2.5 - paletteDist(it.hex, p.refPalette) / 40);
+  s += colourBonus(it);
+  s += bodyBonus(it);
 
   const taste = getTaste();
   if (isLiked(id)) s += 6;
@@ -1080,6 +1618,8 @@ function reasonsFor(id) {
   else if (taste.families[it.family]) out.push('similar to something you liked');
   else if ((taste.shops[it.shop] || 0) >= 1 && it.shop !== 'Vinted (used)') out.push(`you like ${it.shop}`);
   if (p.refPalette && paletteDist(it.hex, p.refPalette) < 35) out.push('matches your reference photo');
+  if (p.colour && colourNear(it, p.colour.suits) < 40) out.push('suits your colouring');
+  if (bodyBonus(it) >= 0.8) out.push('cut to suit your frame');
   if (p.fit !== 'Regular' && fitOf(it) === p.fit) out.push(`${p.fit.toLowerCase()} cut, the way you like it`);
   if (p.colours === 'Earth tones' && tone(it.hex) === 'earth') out.push('an earth tone, like you asked');
   if (p.colours === 'Happy with some colour' && tone(it.hex) === 'colour') out.push('a bit of colour, like you asked');
@@ -1149,7 +1689,7 @@ function evaluate(share) {
   const later = [];
   Object.keys(usage)
     .filter((id) => !owned.has(id) && !now.has(id))
-    .sort((a, b) => usage[b].size - usage[a].size || ITEMS[a].price - ITEMS[b].price)
+    .sort((a, b) => isTimeless(ITEMS[b]) - isTimeless(ITEMS[a]) || usage[b].size - usage[a].size || ITEMS[a].price - ITEMS[b].price)
     .forEach((id) => {
       if (spent + ITEMS[id].price <= budgetCap(p.budget)) { now.add(id); spent += ITEMS[id].price; } else later.push(id);
     });
@@ -1234,11 +1774,29 @@ function renderHome() {
       <p>${readyLine}${sharedLine}${likes ? ` Tuned by ${plural(likes, 'like')}.` : ''}</p>
       <button class="btn light" data-go="shop">See what to buy first</button>
     </section>
+    ${foundationHTML(pl)}
     <h2 class="section">Your looks</h2>
     <div class="grid">${p.lanes.map((l) => tile(l, pl)).join('')}</div>
     ${unused.length ? `<h2 class="section">Add a look</h2>
       <div class="chips">${unused.map((l) => `<button class="chip add" data-add="${esc(l)}">+ ${esc(l)}</button>`).join('')}</div>` : ''}
     <button class="btn ghost browse-cta" data-go="browse">Browse outfits and pieces</button>`;
+}
+
+function foundationHTML(pl) {
+  const ids = Object.keys(pl.usage).filter((id) => isTimeless(ITEMS[id]));
+  if (!ids.length) return '';
+  const owned = new Set(state.ownedIds);
+  return `
+    <h2 class="section">Your foundation</h2>
+    <section class="card foundation">
+      <p class="small">${plural(ids.length, 'timeless piece')} that anchor your looks. They won’t date, so they come first.</p>
+      ${ids.map((id) => `
+        <button class="row-item" data-item="${esc(id)}">
+          ${thumb(ITEMS[id])}
+          <div class="meta"><div class="name">${esc(ITEMS[id].name)}</div><div class="small">${esc(ITEMS[id].colour)} · ${esc(ITEMS[id].shop)}</div></div>
+          <span class="badge ${owned.has(id) ? 'owned' : pl.now.has(id) ? 'now' : 'later'}">${owned.has(id) ? 'Owned' : pl.now.has(id) ? 'Buy now' : 'Buy later'}</span>
+        </button>`).join('')}
+    </section>`;
 }
 
 function tile(lane, pl) {
@@ -1293,7 +1851,7 @@ function pieceCard(lane, slot, x, pl) {
       <div class="piece-head">
         ${thumb(it)}
         <div class="meta">
-          <div class="slot">${slot}</div>
+          <div class="slot">${slot}${x.manual ? '' : pieceTag(it)}</div>
           <div class="name">${esc(it.name)}</div>
           <div class="small">${[it.colour, it.fit, it.shop].filter(Boolean).map(esc).join(' · ')}</div>
         </div>
@@ -1508,7 +2066,7 @@ function renderShop() {
     <header class="top">
       <div class="overline">Shopping list</div>
       <h1 class="serif">What to buy, in order.</h1>
-      <p class="sub">Everything under “Buy now” fits your ${budgetLabel(p.budget)} budget. Whole looks come first, then the pieces that work hardest.</p>
+      <p class="sub">Everything under “Buy now” fits your ${budgetLabel(p.budget)} budget. Whole looks come first, then timeless pieces, then the ones that work hardest.</p>
     </header>
     <section class="card">
       <div class="list-head"><span>Buy now</span><span class="v">${money(pl.spent)}</span></div>
@@ -1528,7 +2086,7 @@ function shopRow(id, pl) {
     <div class="row-item">
       ${thumb(it)}
       <div class="meta">
-        <div class="name">${esc(it.name)}</div>
+        <div class="name">${esc(it.name)}${pieceTag(it)}</div>
         <div class="small">${esc(it.colour)} · ${esc(it.shop)}</div>
         <div class="uses">${[...pl.usage[id]].map((l) => `<span><span class="dot" style="background:${LOOKS[l].tint}"></span>${esc(l)}</span>`).join('')}</div>
       </div>
@@ -1579,7 +2137,8 @@ function renderYou() {
   const memory = [
     ['Your frame', `${a.name}. ${cap(listJoin(a.strategies.map((s) => s.title.toLowerCase())))}.`],
     ['Sizes', [h && fmtHeight(h), p.chest && `chest ${p.chest}`, p.waist && `waist ${p.waist}`, p.inseam && `leg ${p.inseam}`, p.shoe && `shoe ${p.shoe}`].filter(Boolean).join(' · ') || 'Not added yet'],
-    ['Your week', [p.work && p.work.replace(/^Office, (\w+)$/, (_, w) => `${cap(w)} office`), p.gym && p.gym !== 'Rarely' && `gym ${p.gym}`, p.out && p.out !== 'Rarely' && `out ${p.out.toLowerCase()}`].filter(Boolean).join(', ') || 'Not added yet'],
+    ['Your colours', p.colour ? `${p.colour.name}. Wear more ${listJoin(p.colour.suits.slice(0, 4).map(([n]) => n.toLowerCase()))}.` : 'Not added yet. Edit your answers to scan or pick them.'],
+    ['Your week', weekLine(p) || 'Not added yet'],
     ['Your style', cap([p.fit && `${p.fit.toLowerCase()} fits`, p.colours && p.colours.toLowerCase(), p.never.length && `never ${listJoin(p.never.map((x) => x.toLowerCase()))}`].filter(Boolean).join(', ')) || 'Not added yet'],
     ['Your taste', ts.line || 'Still learning. Like pieces and outfits to teach it.'],
     ['Liked', `${plural(state.likes.items.length, 'piece')}, ${plural(state.likes.outfits.length, 'outfit')}`],
@@ -2053,12 +2612,13 @@ function renderWelcome() {
       <h1 class="serif">Know exactly what to wear.</h1>
       <p class="lede">We read your frame, your week and your budget, then build one wardrobe around you: every outfit, what to buy first, and why each piece works on your build.</p>
       <ul class="promise">
-        <li><span><b>Cut for your frame</b>Picked for your height and shape, not a model’s.</span></li>
-        <li><span><b>Everything goes together</b>Each piece is chosen to work with the rest, so nothing sits unworn.</span></li>
+        <li><span><b>Cut for your frame</b>Picked for your height and shape, and styled around anything you’d rather play down.</span></li>
+        <li><span><b>Colours that suit you</b>Read from a quick selfie on your phone. Never uploaded, never saved.</span></li>
+        <li><span><b>Everything goes together</b>Every piece works with the rest, with timeless pieces first so nothing dates.</span></li>
         <li><span><b>Inside your budget</b>What to buy now, and roughly when you’ll have the rest.</span></li>
       </ul>
       <button class="btn" id="start">Start my wardrobe</button>
-      <p class="fine">Takes about 3 minutes. Your first look is free.</p>
+      <p class="fine">Takes about 4 minutes. Your first look is free.</p>
       <button class="link-quiet signin-link" id="signin">Already have a profile? Sign in</button>
     </div>`;
   screen.querySelector('#start').onclick = () => { startOnboarding(); window.scrollTo(0, 0); };
@@ -2113,6 +2673,37 @@ function signOut() {
   toast('Signed out. Sign in with your email to pick up where you left off.');
 }
 
+function learnedAbout(p) {
+  const a = assess(p);
+  const h = heightIn(p.height);
+  const hc = heightClass(h);
+  return [
+    ['Your frame', a.name],
+    h && ['Your height', `${fmtHeight(h)}, so we ${hc === 'Shorter' ? 'use the tricks that add height' : hc === 'Tall' ? 'balance the length' : 'let fit do the work'}`],
+    ((p.playDown || []).length || (p.proud || []).length) && ['Your cuts', 'Styled around what you told us privately'],
+    p.colour && ['Your colours', `${p.colour.name}: more ${listJoin(p.colour.suits.slice(0, 3).map(([n]) => n.toLowerCase()))}`],
+    weekLine(p) && ['Your week', weekLine(p)],
+    p.fit && ['Your style', `${p.fit} fits in ${COLOUR_WORDS[p.colours] || 'your colours'}`],
+    p.never.length && ['Never', listJoin(p.never.map((x) => x.toLowerCase()))],
+    p.refMode === 'image' && ['Your reference', p.refSummary],
+    ['Your budget', `${budgetLabel(p.budget)} for the whole wardrobe`],
+  ].filter(Boolean);
+}
+
+function claimsFor(p, pl) {
+  const a = assess(p);
+  const timeless = Object.keys(pl.usage).filter((id) => isTimeless(ITEMS[id])).length;
+  const week = weekLine(p);
+  const frameMoves = a.strategies.filter((x) => STRATEGY[x.key]).slice(0, 2);
+  return [
+    ['Know exactly what to buy and wear', `${plural(p.lanes.length, 'look')}, one complete outfit each. Nothing to compare.`],
+    ['Look put together every day', week ? `Built around your week: ${week.toLowerCase()}.` : 'Built around how your week actually runs.'],
+    ['Clothes that fit your build first time', `Cut for a ${a.name.toLowerCase()}: ${listJoin(frameMoves.map((x) => x.title.toLowerCase()))}${(p.playDown || []).length ? ', styled around what you told us' : ''}.`],
+    ['Only spend on what you’ll wear', pl.shared ? `${pl.shared} of your ${pl.pieceCount} pieces work in more than one look.` : `Every piece has a place, with ${money(pl.spent)} to buy now.`],
+    ['Buy it once, wear it for years', `${timeless} of your ${pl.pieceCount} pieces are timeless essentials, and they come first.`],
+  ];
+}
+
 function renderPreview() {
   setFunnel(true);
   const p = state.profile;
@@ -2121,6 +2712,7 @@ function renderPreview() {
   const pieces = pl.looks[free];
   const flag = buildFlag(p);
   const left = pl.remaining(free);
+  const learned = learnedAbout(p);
   const row = (slot) => {
     const it = pieces[slot].item;
     const mine = reasonsFor(it.id);
@@ -2148,6 +2740,12 @@ function renderPreview() {
         <div><span class="k">Buy now</span><span class="v">${money(pl.spent)}</span></div>
         <div><span class="k">Shared</span><span class="v">${pl.shared}</span></div>
       </div>
+
+      <section class="recap">
+        <div class="overline">Built for ${p.name ? esc(p.name) : 'you'}</div>
+        <h2 class="serif recap-h">${plural(learned.length, 'thing')} we learned about you.</h2>
+        ${learned.map(([k, v]) => `<div class="recap-row"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join('')}
+      </section>
 
       <h2 class="section">Your first look, free</h2>
       <section class="free-look" style="--tint:${LOOKS[free].tint}">
@@ -2178,6 +2776,11 @@ function renderPreview() {
         <span><b>Your frame plan</b><span class="small">The strategy for a ${esc(assess(p).name.toLowerCase())}, and what to avoid</span></span>
         <span class="lock">${LOCK}</span>
       </button>
+
+      <h2 class="section">What your plan does for you</h2>
+      <section class="claims">${claimsFor(p, pl).map(([c, proof], i) => `
+        <div class="claim"><span class="n">${i + 1}</span><div><b>${esc(c)}</b><span class="small">${esc(proof)}</span></div></div>`).join('')}
+      </section>
 
       <section class="offer">
         <div class="overline">Unlock your full wardrobe</div>
