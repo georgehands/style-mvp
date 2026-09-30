@@ -308,7 +308,7 @@ const OFFER = {
   ],
 };
 // Stripe Payment Link. Set its after-payment redirect to /?paid=1&session_id={CHECKOUT_SESSION_ID}.
-// Left empty, Buy saves his spot instead of taking money.
+// Left empty, Buy logs the tap and opens the plan free, so testers get straight in.
 const STRIPE_LINK = '';
 const BLUEPRINT = true;
 const where = (it) => (BLUEPRINT ? '' : it.shop);
@@ -3095,14 +3095,12 @@ function startPayment() {
     location.href = u.toString();
     return;
   }
-  screen.innerHTML = `
-    <div class="reveal">
-      <div class="seal">✓</div>
-      <h1 class="serif">Your spot is saved.</h1>
-      <p class="lede">Payments open in the next few days, and you haven’t been charged. We’ll email ${p.email ? `<b>${esc(p.email)}</b>` : 'you'} the moment your Blueprint is ready to buy.</p>
-      <button class="btn ghost" id="backToPreview">Back to my preview</button>
-    </div>`;
+  state.unlocked = true;
+  state.view = { tab: 'home', look: null };
+  save();
+  render();
   window.scrollTo(0, 0);
+  toast('Payments aren’t switched on yet, so this one’s on us.');
 }
 
 function joinWaitlist() {
@@ -3187,7 +3185,6 @@ screen.addEventListener('click', (e) => {
   }
   if ('locked' in d) { screen.querySelector('.offer')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   if (t.id === 'buy') return startPayment();
-  if (t.id === 'backToPreview') { render(); window.scrollTo(0, 0); return; }
   if ('waitlist' in d) return joinWaitlist();
 });
 
