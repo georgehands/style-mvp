@@ -205,3 +205,49 @@ const GENERAL_GUIDE = [
   'Shoes change the whole outfit. Clean shoes matter more than new ones.',
   'Get one thing tailored. Hemming trousers costs about £10 and makes cheap trousers look expensive.',
 ];
+
+// Statement pieces: one or two of these gets you noticed. Kept apart from the core plan so they never crowd out the basics.
+const STATEMENT_FAMILIES = {
+  st_suede: { slot: 'Layer', name: 'Suede overshirt', price: 75, shop: 'Zara', looks: ['Casual', 'Smart Casual', 'Streetwear'], stand: 'Suede catches the light and people notice it. Nothing else in your wardrobe does that.', colours: [['Rust', '#9A4B2C'], ['Tobacco', '#7A5230'], ['Forest green', '#2F4A38'], ['Slate', '#5E6B7A'], ['Navy', '#2E3C5A']] },
+  st_cord: { slot: 'Layer', name: 'Corduroy jacket', price: 60, shop: 'Uniqlo', looks: ['Casual', 'Old Money', 'Smart Casual'], stand: 'The texture looks relaxed but considered. It turns jeans and a tee into an outfit.', colours: [['Camel', '#B98A55'], ['Forest green', '#2F4A38'], ['Burgundy', '#5E2230'], ['Stone', '#CFC4AE']] },
+  st_knit: { slot: 'Layer', name: 'Chunky textured jumper', price: 55, shop: 'COS', looks: ['Old Money', 'Casual', 'Smart Casual'], stand: 'A heavy knit in a rich colour is the easiest way to look expensive.', colours: [['Rust', '#9A4B2C'], ['Cream', '#EFE6D2'], ['Bottle green', '#1F4A3A'], ['Burgundy', '#5E2230'], ['Dusty blue', '#7C93AE'], ['Icy blue', '#BFD4EA']] },
+  st_camp: { slot: 'Top', name: 'Camp-collar shirt', price: 35, shop: 'ASOS', looks: ['Night Out', 'Casual', 'Streetwear'], stand: 'The open collar frames your face and the drape looks effortless.', colours: [['Terracotta', '#B5553A'], ['Sage', '#9AA67E'], ['Black', '#111111'], ['Cream', '#EFE6D2'], ['Sky blue', '#8FB3D9']] },
+  st_blazer: { slot: 'Layer', name: 'Double-breasted blazer', price: 110, shop: 'Mango', looks: ['Smart Casual', 'Night Out', 'Old Money'], stand: 'Instantly the best-dressed person in the room, even over a plain tee.', colours: [['Camel', '#B98A55'], ['Burgundy', '#5E2230'], ['Bottle green', '#1F4A3A'], ['Charcoal', '#333333']] },
+  st_bomber: { slot: 'Layer', name: 'Suede bomber', price: 90, shop: 'Zara', looks: ['Streetwear', 'Night Out', 'Casual'], stand: 'A bomber in suede instead of nylon looks twice the price.', colours: [['Tan', '#B08A5E'], ['Chocolate', '#5A3E2B'], ['Black', '#111111'], ['Olive', '#4E5238']] },
+  st_trainers: { slot: 'Shoes', name: 'Retro suede trainers', price: 80, shop: 'adidas', looks: ['Casual', 'Streetwear', 'Smart Casual'], stand: 'Colour on your feet is the safest way to wear it. It sits away from your face and goes with everything.', colours: [['Forest green', '#2F4A38'], ['Burgundy', '#5E2230'], ['Navy', '#1F2A44'], ['Tan', '#B08A5E']] },
+  st_loafers: { slot: 'Shoes', name: 'Suede tassel loafers', price: 70, shop: 'ASOS', looks: ['Old Money', 'Smart Casual', 'Night Out'], stand: 'A loafer in a rich colour tells people you know what you’re doing.', colours: [['Burgundy', '#5E2230'], ['Chocolate', '#5A3E2B'], ['Bottle green', '#1F4A3A'], ['Navy', '#1F2A44']] },
+};
+
+// Three-colour outfits that suit each palette, from most to least safe.
+const COMBOS = {
+  Autumn: [
+    ['Olive, cream and tan', [['Olive', '#4E5238'], ['Cream', '#EFE6D2'], ['Tan', '#B08A5E']], 'An olive layer over a cream tee, with tan or stone trousers.'],
+    ['Rust, cream and chocolate', [['Rust', '#9A4B2C'], ['Cream', '#EFE6D2'], ['Chocolate', '#5A3E2B']], 'A rust knit over cream, with dark brown trousers.'],
+    ['Forest, camel and denim', [['Forest green', '#2F4A38'], ['Camel', '#B98A55'], ['Dark denim', '#2B3A55']], 'A green top under a camel jacket, with dark jeans.'],
+    ['Chocolate, stone and olive', [['Chocolate', '#5A3E2B'], ['Stone', '#CFC4AE'], ['Olive', '#4E5238']], 'A brown knit with stone chinos and an olive jacket.'],
+  ],
+  Spring: [
+    ['Navy, cream and tan', [['Warm navy', '#2E3C5A'], ['Cream', '#F3EBD8'], ['Light tan', '#C9A77C']], 'A navy knit over a cream tee, with tan chinos.'],
+    ['Sage, cream and camel', [['Sage', '#9AA67E'], ['Cream', '#F3EBD8'], ['Camel', '#C49A64']], 'A sage shirt with cream trousers and a camel layer.'],
+    ['Sky blue, stone and camel', [['Sky blue', '#8FB3D9'], ['Stone', '#D8CDB5'], ['Camel', '#C49A64']], 'A light blue shirt, stone chinos, camel loafers or belt.'],
+    ['Coral, cream and navy', [['Coral', '#E07A5F'], ['Cream', '#F3EBD8'], ['Warm navy', '#2E3C5A']], 'Coral as the one pop of colour, with cream and navy.'],
+  ],
+  Summer: [
+    ['Navy, grey and soft white', [['Soft navy', '#3B4A63'], ['Grey', '#8A8C90'], ['Soft white', '#F2F2EE']], 'A navy layer, grey trousers and a soft white tee.'],
+    ['Light blue, slate and charcoal', [['Light blue', '#A8BCD4'], ['Slate', '#6B7A8C'], ['Charcoal', '#4A4D52']], 'A light blue shirt under a slate jacket, charcoal trousers.'],
+    ['Dusty rose, grey and navy', [['Dusty rose', '#C49A9A'], ['Grey', '#8A8C90'], ['Soft navy', '#3B4A63']], 'A dusty rose tee with grey trousers and a navy layer.'],
+    ['Lavender grey, charcoal and white', [['Lavender grey', '#A9A6B8'], ['Charcoal', '#4A4D52'], ['Soft white', '#F2F2EE']], 'A soft grey knit, charcoal trousers, white trainers.'],
+  ],
+  Winter: [
+    ['Black, white and burgundy', [['Black', '#111111'], ['Pure white', '#FFFFFF'], ['Burgundy', '#5E2230']], 'Black and white, with one burgundy piece as the focus.'],
+    ['Navy, white and grey', [['Navy', '#1F2A44'], ['Pure white', '#FFFFFF'], ['Grey', '#8A8C90']], 'A navy jacket over a white tee, grey trousers.'],
+    ['Charcoal, icy blue and black', [['Charcoal', '#333333'], ['Icy blue', '#BFD4EA'], ['Black', '#111111']], 'An icy blue shirt under charcoal, black trousers.'],
+    ['Emerald, black and white', [['Emerald', '#1F5E4A'], ['Black', '#111111'], ['Pure white', '#FFFFFF']], 'An emerald knit with black trousers and white trainers.'],
+  ],
+  Any: [
+    ['Navy, white and stone', [['Navy', '#1F2A44'], ['White', '#F7F7F5'], ['Stone', '#CFC4AE']], 'A navy layer over a white tee, stone chinos. Hard to get wrong.'],
+    ['Olive, cream and tan', [['Olive', '#4E5238'], ['Cream', '#EFE6D2'], ['Tan', '#B08A5E']], 'An olive layer over a cream tee, with tan trousers.'],
+    ['Black, grey and white', [['Black', '#111111'], ['Grey', '#8A8C90'], ['White', '#F7F7F5']], 'Black trousers, a grey knit and white trainers.'],
+    ['Camel, navy and white', [['Camel', '#B98A55'], ['Navy', '#1F2A44'], ['White', '#F7F7F5']], 'A camel jacket over navy, with white trainers.'],
+  ],
+};

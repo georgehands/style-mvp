@@ -884,6 +884,35 @@ main > .ref-hero { margin-bottom: 14px; }
 .foundation button.row-item { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
 .foundation button.row-item:last-child { border-bottom: none; }
 
+.note-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 7px; font-size: 14px; line-height: 1.45; }
+.note-list b { font-weight: 600; }
+.under-check { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; }
+.under-check .small { font-size: 12.5px; line-height: 1.4; }
+.under-opts { display: flex; flex: 0 0 auto; border: 1px solid var(--line-strong); border-radius: 999px; padding: 2px; }
+.under-opts button { border: 0; background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 999px; }
+.under-opts button.on { background: var(--gold); color: var(--gold-ink); }
+.scan-tips { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: rgba(214, 194, 154, .08); border: 1px dashed rgba(214, 194, 154, .35); }
+.scan-tips p { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-soft); }
+.scan-tips p + p { margin-top: 6px; }
+.section-sub { margin: -6px 0 14px; font-size: 13.5px; line-height: 1.45; color: var(--muted); }
+.statements { display: grid; gap: 12px; margin-bottom: 8px; }
+.stmt { padding: 14px 16px; border-radius: 18px; background: var(--card); border: 1px solid var(--line); }
+.stmt-top { display: flex; align-items: center; gap: 14px; }
+.stmt-top .meta { flex: 1; min-width: 0; }
+.stmt-top .name { font-weight: 600; }
+.stmt-top .price { font-weight: 600; }
+.stmt .why { margin: 10px 0 0; font-size: 13.5px; line-height: 1.45; }
+.stmt .why.you { margin-top: 6px; color: var(--gold); }
+.stmt .also { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+.combos { display: grid; gap: 10px; margin-bottom: 8px; }
+.combo { display: flex; gap: 14px; align-items: center; padding: 12px 14px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); }
+.combo-sw { display: flex; flex: 0 0 auto; }
+.combo-sw i { width: 30px; height: 30px; border-radius: 50%; box-shadow: 0 0 0 2px var(--card), inset 0 0 0 1px rgba(0, 0, 0, .12); }
+.combo-sw i + i { margin-left: -8px; }
+.combo-text { display: grid; gap: 2px; min-width: 0; }
+.combo-text b { font-size: 14.5px; font-weight: 600; }
+.combo-text .small { font-size: 13px; line-height: 1.4; }
+.combo-have { font-size: 12px; font-weight: 600; color: var(--accent); margin-top: 3px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

@@ -49,6 +49,11 @@ const GARMENT = {
   sunglasses: { kind: 'glasses' },
 };
 
+Object.assign(GARMENT, {
+  st_suede: GARMENT.overshirt, st_cord: GARMENT.overshirt, st_knit: GARMENT.cable, st_camp: GARMENT.linen,
+  st_blazer: GARMENT.blazer, st_bomber: GARMENT.bomber, st_trainers: GARMENT.trainers, st_loafers: GARMENT.loafers,
+});
+
 const FALLBACK_GARMENT = { Top: { kind: 'tee' }, Bottom: { kind: 'trousers' }, Shoes: { kind: 'shoe', style: 'trainer' }, Layer: { kind: 'jacket', collar: true, hem: 'long', open: 0.3 }, Accessory: { kind: 'none' } };
 const garmentOf = (it) => GARMENT[it.family] || FALLBACK_GARMENT[it.slot] || { kind: 'none' };
 

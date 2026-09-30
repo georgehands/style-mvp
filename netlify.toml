@@ -1,2 +1,8 @@
 [build]
   publish = "public"
+
+# Always check for a newer file, so a returning visitor never mixes old and new scripts.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
