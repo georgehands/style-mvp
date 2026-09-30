@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Funnel · Style, Decided</title>
+<style>
+  body { margin: 0; background: #f5f4f0; color: #1a1b19; font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 28px 16px 60px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 30px 0 8px; }
+  p { color: #6b6d68; margin: 0 0 14px; }
+  .wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; background: #fff; font-variant-numeric: tabular-nums; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid #e2e0da; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #6b6d68; }
+  tr.total td { font-weight: 700; }
+  .rate { color: #2f6b4a; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Funnel</h1>
+  <p>Anonymous counts, one of each event per visit. Rates: finished per visit, paid per finished.</p>
+  <div id="out">Loading…</div>
+</main>
+<script>
+const TRIED = ['Nothing yet', 'Asking friends or family', 'Pinterest or Instagram', 'YouTube or TikTok advice', 'ChatGPT or another AI', 'A stylist or shop assistant', 'A colour analysis'];
+const COLS = [['visit', 'Visits'], ['start', 'Started'], ['finish', 'Finished'], ['buy_tap', 'Tapped Buy'], ['paid', 'Paid'], ['waitlist', 'Waitlist']];
+const pct = (a, b) => (b ? `${Math.round((a / b) * 1000) / 10}%` : '–');
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+fetch('/api/stats').then((r) => r.json()).then(({ totals }) => {
+  const srcs = Object.keys(totals).sort((a, b) => (totals[b].visit || 0) - (totals[a].visit || 0));
+  const all = {};
+  srcs.forEach((s) => Object.entries(totals[s]).forEach(([k, n]) => { all[k] = (all[k] || 0) + n; }));
+  const row = (name, t, cls = '') => `<tr class="${cls}"><td>${esc(name)}</td>${COLS.map(([k]) => `<td>${t[k] || 0}</td>`).join('')}<td class="rate">${pct(t.finish || 0, t.visit || 0)}</td><td class="rate">${pct(t.paid || 0, t.finish || 0)}</td></tr>`;
+  const steps = Object.keys(all).filter((k) => k.startsWith('step_')).sort((a, b) => a.slice(5) - b.slice(5));
+  document.getElementById('out').innerHTML = `
+    <h2>By source</h2>
+    <div class="wrap"><table><tr><th>Source</th>${COLS.map(([, l]) => `<th>${l}</th>`).join('')}<th>Finish rate</th><th>Paid rate</th></tr>
+      ${srcs.map((s) => row(s, totals[s])).join('')}${row('All', all, 'total')}</table></div>
+    <h2>Where people stop</h2>
+    <div class="wrap"><table><tr><th>Reached</th><th>Visits</th><th>Share of starters</th></tr>
+      <tr><td>Started</td><td>${all.start || 0}</td><td>100%</td></tr>
+      ${steps.map((k) => `<tr><td>Step ${k.slice(5)}</td><td>${all[k]}</td><td>${pct(all[k], all.start || 0)}</td></tr>`).join('')}
+      <tr><td>Finished</td><td>${all.finish || 0}</td><td>${pct(all.finish || 0, all.start || 0)}</td></tr></table></div>
+    <h2>What they've tried (awareness)</h2>
+    <div class="wrap"><table><tr><th>Answer</th><th>People</th></tr>
+      ${TRIED.map((t, i) => `<tr><td>${esc(t)}</td><td>${all[`tried_${i}`] || 0}</td></tr>`).join('')}</table></div>`;
+}).catch(() => { document.getElementById('out').textContent = 'Stats only work on the live site.'; });
+</script>
+</body>
+</html>

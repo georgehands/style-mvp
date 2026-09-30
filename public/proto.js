@@ -27,10 +27,10 @@ const blank = () => ({
   profile: null, picks: {}, ownedIds: [], ownedManual: [],
   likes: { items: [], outfits: [] }, signals: { away: {}, n: 0 }, notes: [],
   view: { tab: 'home', look: null },
-  unlocked: false, leadSent: '', tier: 'complete', createdAt: null,
+  unlocked: false, leadSent: '', createdAt: null, src: '', paidAt: null, waitlisted: false,
 });
 const blankProfile = () => ({
-  goals: [], goalText: '',
+  tried: [], goals: [], goalText: '',
   height: '', shape: '', broad: false, flags: [], chest: '', waist: '', inseam: '', shoe: '',
   work: '', gym: '', out: '', weekends: [],
   playDown: [], proud: [],
@@ -295,13 +295,44 @@ function refStrip(p) {
 
 // ---------- Funnel: welcome, intake notes, preview, checkout ----------
 
-const TIERS = {
-  starter: { name: 'Starter', price: 19, line: 'Your full plan, once.', items: ['Every look, piece by piece', 'Your shopping list, in the order to buy'] },
-  complete: { name: 'Complete', price: 29, line: 'The plan, plus a stylist that keeps learning you.', items: ['Everything in Starter', 'Your frame plan: what works on your build, and why', 'Unlimited swaps: cheaper, another colour, something different', 'Remembers what you like, own and ask for'] },
-  plus: { name: 'Complete + stylist check', price: 49, line: 'A real stylist looks over your plan.', items: ['Everything in Complete', 'Your plan checked by a stylist, with notes on anything to change'] },
+// The MVP sells one thing: the Style Blueprint. It's the existing plan with prices, shops and budget figures hidden.
+const OFFER = {
+  name: 'Style Blueprint',
+  price: 15,
+  items: [
+    'Your frame plan: what works on your build, and why',
+    'Every look, piece by piece: the garment, colour and fit',
+    'What to buy first, in order, inside your budget',
+    'Your colour palette, combos and statement pieces',
+    'How to measure yourself and pick your size',
+  ],
 };
-const tierOf = () => TIERS[state.tier] || TIERS.complete;
-const perDay = (price) => `${Math.round((price / 365) * 100)}p a day over a year`;
+// Stripe Payment Link. Set its after-payment redirect to /?paid=1&session_id={CHECKOUT_SESSION_ID}.
+// Left empty, Buy saves his spot instead of taking money.
+const STRIPE_LINK = '';
+const BLUEPRINT = true;
+const where = (it) => (BLUEPRINT ? '' : it.shop);
+const meta = (...parts) => parts.filter(Boolean).map(esc).join(' · ');
+const priceTag = (n) => (BLUEPRINT ? '' : money(n));
+
+const TRIED = ['Nothing yet', 'Asking friends or family', 'Pinterest or Instagram', 'YouTube or TikTok advice', 'ChatGPT or another AI', 'A stylist or shop assistant', 'A colour analysis'];
+
+// Anonymous funnel counts: one event of each kind per visit, tagged with the link he came from.
+function track(e) {
+  try {
+    const seen = JSON.parse(sessionStorage.getItem('tracked') || '[]');
+    if (seen.includes(e)) return;
+    seen.push(e);
+    sessionStorage.setItem('tracked', JSON.stringify(seen));
+  } catch { /* storage blocked: may double count, which is fine */ }
+  const body = JSON.stringify({ e, src: state.src || 'direct' });
+  try {
+    if (!navigator.sendBeacon?.('/api/event', new Blob([body], { type: 'application/json' }))) {
+      fetch('/api/event', { method: 'POST', body, keepalive: true }).catch(() => {});
+    }
+  } catch { /* tracking never breaks the app */ }
+}
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const LOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
 const GOAL_NOTES = {
@@ -1010,6 +1041,16 @@ function runAssess() {
 const STEPS = [
   {
     chapter: 0,
+    title: 'What have you tried so far?',
+    sub: 'Tap everything you’ve tried to sort your style. It helps us pitch your plan at the right level.',
+    render: () => `<div class="chips" data-multi="tried">${TRIED.map((t) => chip(t, draft.tried.includes(t))).join('')}</div>`,
+    valid: () => draft.tried.length,
+    note: () => (draft.tried.length && !draft.tried.includes('Nothing yet')
+      ? { label: 'Stylist note', text: 'Most of that gives you options. This gives you one answer, built around your body.' }
+      : null),
+  },
+  {
+    chapter: 0,
     title: 'What do you want out of this?',
     sub: 'Pick everything that fits.',
     render: () => `
@@ -1225,7 +1266,7 @@ const STEPS = [
         <input type="checkbox" id="optIn"${draft.optIn ? ' checked' : ''}>
         <span>Send me style tips and new looks now and then. Unsubscribe any time.</span>
       </label>
-      <p class="fine left">Saved on this device for now. We won’t sell or share your email.</p>`,
+      <p class="fine left">Saved on this device, and sent to us so we can reach you about your plan. We won’t sell or share your email. <a href="/terms.html" target="_blank" rel="noopener">Privacy</a></p>`,
     valid: () => draft.name.trim() && EMAIL_RE.test(draft.email.trim()),
     note: () => {
       const pl = previewPlan(draft);
@@ -1480,6 +1521,7 @@ function startOnboarding() {
 
 function renderStep(dir = 0) {
   const s = STEPS[step];
+  if (dir > 0) track(`step_${step + 1}`);
   s.enter?.();
   syncFlags(draft);
   const inCh = STEPS.map((_, i) => i).filter((i) => STEPS[i].chapter === s.chapter);
@@ -1555,6 +1597,7 @@ function renderStep(dir = 0) {
     window.scrollTo(0, 0);
   };
   screen.querySelector('#next').onclick = () => {
+    if (s.render === STEPS[0].render) draft.tried.forEach((t) => track(`tried_${TRIED.indexOf(t)}`));
     if (!last) { step++; renderStep(1); window.scrollTo(0, 0); return; }
     finishOnboarding();
   };
@@ -1595,12 +1638,13 @@ function finishOnboarding() {
   syncFlags(draft);
   state.profile = draft;
   state.createdAt ||= Date.now();
+  track('finish');
   state.view = { tab: 'home', look: null };
   const a = assess(draft);
   if (draft.email !== state.leadSent) {
     record('leads', {
-      name: draft.name.trim(), email: draft.email, opt_in: draft.optIn ? 'yes' : 'no',
-      goals: draft.goals.join(', '), build: `${a.name} (${draft.flags.join(', ')})`, height: draft.height,
+      name: draft.name.trim(), email: draft.email, opt_in: draft.optIn ? 'yes' : 'no', src: state.src || 'direct',
+      tried: draft.tried.join(', '), goals: draft.goals.join(', '), build: `${a.name} (${draft.flags.join(', ')})`, height: draft.height,
       work: draft.work, looks: draft.lanes.join(', '), budget: budgetLabel(draft.budget), monthly: draft.monthly,
     });
     state.leadSent = draft.email;
@@ -1751,7 +1795,7 @@ function reasonsFor(id) {
   if (asked) out.push(`you asked for “${asked}”`);
   if (isLiked(id)) out.push('you liked this');
   else if (taste.families[it.family]) out.push('similar to something you liked');
-  else if ((taste.shops[it.shop] || 0) >= 1 && it.shop !== 'Vinted (used)') out.push(`you like ${it.shop}`);
+  else if (!BLUEPRINT && (taste.shops[it.shop] || 0) >= 1 && it.shop !== 'Vinted (used)') out.push(`you like ${it.shop}`);
   if (p.refPalette && paletteDist(it.hex, p.refPalette) < 35) out.push('matches your reference photo');
   if (p.colour && colourNear(it, p.colour.suits) < 40) out.push('suits your colouring');
   if (bodyBonus(it) >= 0.8) out.push('cut to suit your frame');
@@ -1890,7 +1934,7 @@ function renderHome() {
   const pct = Math.min(100, (pl.spent / Math.min(budgetCap(p.budget), Math.max(pl.spent, 1))) * 100);
   const likes = state.likes.items.length + state.likes.outfits.length;
   const readyLine = pl.ready.length
-    ? `Your buy-now list finishes <b>${pl.ready.length} of ${p.lanes.length}</b> looks.`
+    ? `Your buy-first list finishes <b>${pl.ready.length} of ${p.lanes.length}</b> looks.`
     : 'Your budget doesn’t finish a full look yet, so this starts with the pieces that work hardest.';
   const sharedLine = pl.shared ? ` <b>${plural(pl.shared, 'piece')}</b> ${pl.shared === 1 ? 'works' : 'work'} across more than one look.` : '';
 
@@ -1903,12 +1947,17 @@ function renderHome() {
     <section class="plan">
       <div class="plan-row">
         <div><div class="k">Budget</div><div class="v">${budgetLabel(p.budget)}</div></div>
-        <div><div class="k">Buy now</div><div class="v">${money(pl.spent)}</div></div>
+        <div><div class="k">Buy first</div><div class="v">${BLUEPRINT ? plural(pl.now.size, 'piece') : money(pl.spent)}</div></div>
       </div>
       <div class="bar"><span style="width:${pct}%"></span></div>
       <p>${readyLine}${sharedLine}${likes ? ` Tuned by ${plural(likes, 'like')}.` : ''}</p>
       <button class="btn light" data-go="shop">See what to buy first</button>
     </section>
+    ${BLUEPRINT ? `
+      <section class="waitlist">
+        <div><b>Want real products and your size in every shop?</b><span class="small">The full plan finds real pieces, today’s prices and the size to order. Join the waitlist to get it first.</span></div>
+        <button class="btn${state.waitlisted ? ' ghost' : ''}" data-waitlist>${state.waitlisted ? 'You’re on the list ✓' : 'Join the waitlist'}</button>
+      </section>` : ''}
     <h2 class="section">Your looks</h2>
     <div class="grid">${p.lanes.map((l) => tile(l, pl)).join('')}</div>
     ${foundationHTML(pl)}
@@ -1975,8 +2024,8 @@ function statementHTML(p, pl) {
         <article class="stmt">
           <div class="stmt-top">
             ${thumb(x)}
-            <div class="meta"><div class="name">${esc(x.name)}</div><div class="small">${esc(x.colour)} · ${esc(x.shop)}</div></div>
-            <div class="price">${money(x.price)}</div>
+            <div class="meta"><div class="name">${esc(x.name)}</div><div class="small">${meta(x.colour, where(x))}</div></div>
+            ${BLUEPRINT ? '' : `<div class="price">${money(x.price)}</div>`}
           </div>
           <p class="why">${esc(x.stand)}</p>
           <p class="why you">${esc(colourWhy)}</p>
@@ -2027,7 +2076,7 @@ function foundationHTML(pl) {
       ${ids.map((id) => `
         <button class="row-item" data-item="${esc(id)}">
           ${thumb(ITEMS[id])}
-          <div class="meta"><div class="name">${esc(ITEMS[id].name)}</div><div class="small">${esc(ITEMS[id].colour)} · ${esc(ITEMS[id].shop)}</div></div>
+          <div class="meta"><div class="name">${esc(ITEMS[id].name)}</div><div class="small">${meta(ITEMS[id].colour, ITEMS[id].fit, where(ITEMS[id]))}</div></div>
           <span class="badge ${owned.has(id) ? 'owned' : pl.now.has(id) ? 'now' : 'later'}">${owned.has(id) ? 'Owned' : pl.now.has(id) ? 'Buy now' : 'Buy later'}</span>
         </button>`).join('')}
     </section>`;
@@ -2040,7 +2089,7 @@ function tile(lane, pl) {
     <button class="tile" data-look="${esc(lane)}" style="--tint:${LOOKS[lane].tint}">
       <div class="tile-head">
         <span class="tile-name serif">${esc(lane)}</span>
-        <span class="pill${left === 0 ? ' ok' : ''}">${left === 0 ? 'Ready' : `+${money(left)}`}</span>
+        <span class="pill${left === 0 ? ' ok' : ''}">${left === 0 ? 'Ready' : BLUEPRINT ? 'Finish later' : `+${money(left)}`}</span>
       </div>
       <div class="tile-fig">${avatarSVG(pieces)}</div>
       <div class="tile-tag">${esc(LOOKS[lane].tagline)}</div>
@@ -2060,7 +2109,7 @@ function renderLook(lane) {
           <div class="overline">Your look</div>
           <h1 class="serif">${esc(lane)}</h1>
           <p>${esc(LOOKS[lane].tagline)}</p>
-          <span class="pill${left === 0 ? ' ok' : ''}">${left === 0 ? 'Covered by your buy-now list' : `${money(left)} more to finish`}</span>
+          <span class="pill${left === 0 ? ' ok' : ''}">${left === 0 ? 'Covered by your buy-first list' : BLUEPRINT ? 'Some pieces come later' : `${money(left)} more to finish`}</span>
         </div>
         <div class="look-fig">${avatarSVG(pieces)}</div>
       </div>
@@ -2070,7 +2119,7 @@ function renderLook(lane) {
       <input type="text" id="askLook" autocomplete="off" placeholder="Ask the stylist: black shoes, woody scent, cheaper jeans…">
       <button class="btn" type="submit">Ask</button>
     </form>
-    <p class="note">For now it understands colours, brands, fits and types of clothing. The full AI will understand anything. Prices are samples.</p>
+    <p class="note">${BLUEPRINT ? 'Your Blueprint names the garment, colour and fit. Real products, prices and your size in each shop come with the full plan.' : 'For now it understands colours, brands, fits and types of clothing. The full AI will understand anything. Prices are samples.'}</p>
     ${state.profile.lanes.length > 1 ? `<button class="btn ghost drop" data-drop="${esc(lane)}">Remove this look</button>` : ''}`;
 }
 
@@ -2087,10 +2136,10 @@ function pieceCard(lane, slot, x, pl) {
         <div class="meta">
           <div class="slot">${slot}${x.manual ? '' : pieceTag(it)}</div>
           <div class="name">${esc(it.name)}</div>
-          <div class="small">${[it.colour, it.fit, it.shop].filter(Boolean).map(esc).join(' · ')}</div>
+          <div class="small">${meta(it.colour, it.fit, where(it))}</div>
         </div>
         <div class="right">
-          ${x.owned ? '' : `<div class="price">${money(it.price)}</div>`}
+          ${x.owned || BLUEPRINT ? '' : `<div class="price">${money(it.price)}</div>`}
           <span class="badge ${status[0]}">${status[1]}</span>
         </div>
       </div>
@@ -2163,7 +2212,7 @@ function renderBrowse() {
         </span>
         <span class="pcard-body">
           <span class="name">${esc(f.show.name)}</span>
-          <span class="small">${esc(f.show.shop)} · ${money(f.show.price)}</span>
+          <span class="small">${BLUEPRINT ? esc(f.show.fit) : `${esc(f.show.shop)} · ${money(f.show.price)}`}</span>
           <span class="dots">${f.variants.map((v) => `<span style="background:${esc(v.hex)}"></span>`).join('')}</span>
         </span>
       </button>`).join('')}</div>` : `<div class="empty">${browseSlot === 'Liked' ? 'Nothing liked here yet. Tap the heart on anything you like.' : 'Nothing here yet.'}</div>`}`;
@@ -2204,7 +2253,7 @@ function setupRing(ring, k) {
       centred = o;
       caption.innerHTML = `
         <div class="rc-name serif">${esc(o.name)}</div>
-        <div class="rc-meta">${esc(o.look)} · ${money(outfitPrice(o))} · ${o.match}% match</div>
+        <div class="rc-meta">${meta(o.look, priceTag(outfitPrice(o)), `${o.match}% match`)}</div>
         <div class="rc-actions">
           <button class="icon${isOutfitLiked(o) ? ' on' : ''}" data-like-outfit="${o.i}" aria-label="Like outfit">${heart(isOutfitLiked(o))}</button>
           <button class="rc-open" data-open-outfit="${o.i}">View outfit</button>
@@ -2255,7 +2304,7 @@ function renderOutfit() {
     <header class="outfit-head">
       <div class="overline">${esc(o.look)}${o.edited ? ' · Your version' : ''}</div>
       <h1 class="serif">${esc(o.base)}</h1>
-      <div class="small">${money(outfitPrice(o))} · ${matchPct(o)}% match</div>
+      <div class="small">${meta(priceTag(outfitPrice(o)), `${matchPct(o)}% match`)}</div>
     </header>
     ${SLOTS.map((slot) => {
       const it = ITEMS[o.pieces[slot]];
@@ -2267,10 +2316,10 @@ function renderOutfit() {
             <div class="meta">
               <div class="slot">${slot}</div>
               <div class="name">${esc(it.name)}</div>
-              <div class="small">${esc(it.colour)} · ${esc(it.shop)}</div>
+              <div class="small">${meta(it.colour, it.fit, where(it))}</div>
               ${why.length ? `<div class="small you">${esc(why[0].charAt(0).toUpperCase() + why[0].slice(1))}</div>` : ''}
             </div>
-            <div class="right"><div class="price">${money(it.price)}</div></div>
+            ${BLUEPRINT ? '' : `<div class="right"><div class="price">${money(it.price)}</div></div>`}
           </div>
           <div class="piece-actions">
             <button class="primary" data-ochange="${slot}">Change</button>
@@ -2300,15 +2349,15 @@ function renderShop() {
     <header class="top">
       <div class="overline">Shopping list</div>
       <h1 class="serif">What to buy, in order.</h1>
-      <p class="sub">Everything under “Buy now” fits your ${budgetLabel(p.budget)} budget. Whole looks come first, then timeless pieces, then the ones that work hardest.</p>
+      <p class="sub">Everything under “Buy first” fits your ${budgetLabel(p.budget)} budget. Whole looks come first, then timeless pieces, then the ones that work hardest.</p>
     </header>
     <section class="card">
-      <div class="list-head"><span>Buy now</span><span class="v">${money(pl.spent)}</span></div>
+      <div class="list-head"><span>Buy first</span><span class="v">${BLUEPRINT ? plural(pl.now.size, 'piece') : money(pl.spent)}</span></div>
       ${pl.now.size ? [...pl.now].map((id) => shopRow(id, pl)).join('') : '<div class="empty">Nothing fits yet. Raise your budget or mark pieces you own.</div>'}
     </section>
     ${pl.later.length ? `
       <section class="card later">
-        <div class="list-head"><span>Buy later</span><span class="v">${money(pl.laterTotal)}</span></div>
+        <div class="list-head"><span>Buy later</span><span class="v">${BLUEPRINT ? plural(pl.later.length, 'piece') : money(pl.laterTotal)}</span></div>
         <div class="meta-line">About ${plural(months, 'month')} at what you usually spend.</div>
         ${pl.later.map((id) => shopRow(id, pl)).join('')}
       </section>` : '<p class="note">That’s everything. Every look is covered.</p>'}`;
@@ -2321,10 +2370,10 @@ function shopRow(id, pl) {
       ${thumb(it)}
       <div class="meta">
         <div class="name">${esc(it.name)}${pieceTag(it)}</div>
-        <div class="small">${esc(it.colour)} · ${esc(it.shop)}</div>
+        <div class="small">${meta(it.colour, it.fit, where(it))}</div>
         <div class="uses">${[...pl.usage[id]].map((l) => `<span><span class="dot" style="background:${LOOKS[l].tint}"></span>${esc(l)}</span>`).join('')}</div>
       </div>
-      <div class="price">${money(it.price)}</div>
+      ${BLUEPRINT ? '' : `<div class="price">${money(it.price)}</div>`}
     </div>`;
 }
 
@@ -2455,8 +2504,8 @@ function itemHeader(it, withLike = true) {
       ${thumb(it, 'big')}
       <div class="meta">
         <div class="name">${esc(it.name)}</div>
-        <div class="small">${esc(it.colour)} · ${esc(it.fit)} · ${esc(it.shop)}</div>
-        <div class="price">${money(it.price)}</div>
+        <div class="small">${meta(it.colour, it.fit, where(it))}</div>
+        ${BLUEPRINT ? '' : `<div class="price">${money(it.price)}</div>`}
       </div>
       ${withLike ? `<button class="icon${isLiked(it.id) ? ' on' : ''}" data-like="${esc(it.id)}" aria-label="Like">${heart(isLiked(it.id))}</button>` : ''}
     </div>`;
@@ -2480,6 +2529,7 @@ function changeSheet(ctx) {
   const others = all.filter((id) => id !== cur.id).sort((a, b) => score(b, look) - score(a, look));
   const diff = (id) => {
     const d = ITEMS[id].price - it.price;
+    if (BLUEPRINT) return d === 0 ? '' : d < 0 ? 'Cheaper' : 'Pricier';
     return d === 0 ? 'Same price' : d < 0 ? `${money(-d)} less` : `${money(d)} more`;
   };
   return `
@@ -2508,7 +2558,7 @@ function changeSheet(ctx) {
             ${thumb(o)}
             <span class="meta">
               <span class="name">${esc(o.name)}${i === 0 ? ' <span class="rec-tag">Best match</span>' : ''}</span>
-              <span class="small">${esc(o.colour)} · ${esc(o.shop)} · ${money(o.price)} <span class="diff">${diff(id)}</span></span>
+              <span class="small">${meta(o.colour, where(o), priceTag(o.price))} <span class="diff">${diff(id)}</span></span>
               ${why ? `<span class="small you">${esc(why.charAt(0).toUpperCase() + why.slice(1))}</span>` : ''}
             </span>
           </button>
@@ -2545,10 +2595,10 @@ function builtSheet(o) {
       <div class="built-fig" style="--tint:${LOOKS[o.look].tint}">${avatarSVG(piecesOf(o))}</div>
       <div class="built-list">${SLOTS.map((s) => {
         const it = ITEMS[o.pieces[s]];
-        return `<div class="built-row">${thumb(it, 'sm')}<span class="meta"><span class="name">${esc(it.name)}</span><span class="small">${esc(it.colour)} · ${money(it.price)}</span></span></div>`;
+        return `<div class="built-row">${thumb(it, 'sm')}<span class="meta"><span class="name">${esc(it.name)}</span><span class="small">${meta(it.colour, priceTag(it.price))}</span></span></div>`;
       }).join('')}</div>
     </div>
-    <div class="built-total"><span>${matchPct(o)}% match</span><span>${money(outfitPrice(o))}</span></div>
+    <div class="built-total"><span>${matchPct(o)}% match</span><span>${priceTag(outfitPrice(o))}</span></div>
     <div class="actions">
       <button class="btn ghost" data-like-built>${isOutfitLiked(o) ? 'Liked ✓' : 'Like'}</button>
       <button class="btn" data-apply>${inLanes ? `Use as my ${esc(o.look)} look` : `Add as a ${esc(o.look)} look`}</button>
@@ -2766,7 +2816,7 @@ function quick(kind) {
   }
   const it = ITEMS[target];
   const msg = kind === 'cheaper'
-    ? `Swapped to ${it.shop} ${it.name.toLowerCase()}, saves ${money(cur.price - it.price)}`
+    ? (BLUEPRINT ? `Swapped to a cheaper ${it.name.toLowerCase()}` : `Swapped to ${it.shop} ${it.name.toLowerCase()}, saves ${money(cur.price - it.price)}`)
     : `Swapped to ${it.colour.toLowerCase()} ${it.name.toLowerCase()}`;
   pick(look, slot, target, msg);
 }
@@ -2852,10 +2902,10 @@ function renderWelcome() {
         <li><span><b>Inside your budget</b>What to buy now, and roughly when you’ll have the rest.</span></li>
       </ul>
       <button class="btn" id="start">Start my wardrobe</button>
-      <p class="fine">Takes about 4 minutes. Your first look is free.</p>
+      <p class="fine">Takes about 4 minutes. Your first look is free. <a href="/terms.html" target="_blank" rel="noopener">Terms and privacy</a></p>
       <button class="link-quiet signin-link" id="signin">Already have a profile? Sign in</button>
     </div>`;
-  screen.querySelector('#start').onclick = () => { startOnboarding(); window.scrollTo(0, 0); };
+  screen.querySelector('#start').onclick = () => { track('start'); startOnboarding(); window.scrollTo(0, 0); };
   screen.querySelector('#signin').onclick = () => { renderSignIn(); window.scrollTo(0, 0); };
 }
 
@@ -2933,7 +2983,7 @@ function claimsFor(p, pl) {
     ['Know exactly what to buy and wear', `${plural(p.lanes.length, 'look')}, one complete outfit each. Nothing to compare.`],
     ['Look put together every day', week ? `Built around your week: ${week.toLowerCase()}.` : 'Built around how your week actually runs.'],
     ['Clothes that fit your build first time', `Cut for a ${a.name.toLowerCase()}: ${listJoin(frameMoves.map((x) => x.title.toLowerCase()))}${(p.playDown || []).length ? ', styled around what you told us' : ''}.`],
-    ['Only spend on what you’ll wear', pl.shared ? `${pl.shared} of your ${pl.pieceCount} pieces work in more than one look.` : `Every piece has a place, with ${money(pl.spent)} to buy now.`],
+    ['Only spend on what you’ll wear', pl.shared ? `${pl.shared} of your ${pl.pieceCount} pieces work in more than one look.` : `Every piece has a place, with ${plural(pl.now.size, 'piece')} to buy first.`],
     ['Buy it once, wear it for years', `${timeless} of your ${pl.pieceCount} pieces are timeless essentials, and they come first.`],
   ];
 }
@@ -2957,12 +3007,12 @@ function renderPreview() {
         <div class="meta">
           <div class="slot">${slot}</div>
           <div class="name">${esc(it.name)}</div>
-          <div class="small">${esc(it.colour)} · ${esc(it.shop)}</div>
+          <div class="small">${meta(it.colour, it.fit, where(it))}</div>
           ${it.why ? `<p class="why">${esc(it.why)}</p>` : ''}
           ${fitNote ? `<p class="why fit">For your frame: ${esc(fitNote)}</p>` : ''}
           ${mine.length ? `<p class="why fit">Picked for you: ${esc(mine.join(', '))}.</p>` : ''}
         </div>
-        <div class="price">${pieces[slot].owned ? 'Owned' : money(it.price)}</div>
+        ${BLUEPRINT ? '' : `<div class="price">${pieces[slot].owned ? 'Owned' : money(it.price)}</div>`}
       </div>`;
   };
   screen.innerHTML = `
@@ -2971,7 +3021,7 @@ function renderPreview() {
       <h1 class="serif">${plural(p.lanes.length, 'look')}, ${plural(pl.pieceCount, 'piece')}, built around ${budgetLabel(p.budget)}.</h1>
       <div class="stats">
         <div><span class="k">Ready now</span><span class="v">${pl.ready.length}/${p.lanes.length}</span></div>
-        <div><span class="k">Buy now</span><span class="v">${money(pl.spent)}</span></div>
+        <div><span class="k">Buy first</span><span class="v">${BLUEPRINT ? pl.now.size : money(pl.spent)}</span></div>
         <div><span class="k">Shared</span><span class="v">${pl.shared}</span></div>
       </div>
 
@@ -2989,7 +3039,7 @@ function renderPreview() {
             <div class="overline">Look 1 of ${p.lanes.length}</div>
             <h3 class="serif">${esc(free)}</h3>
             <p>${esc(LOOKS[free].tagline)}</p>
-            <span class="pill${left === 0 ? ' ok' : ''}">${left === 0 ? 'Fits your budget' : `${money(left)} more to finish`}</span>
+            <span class="pill${left === 0 ? ' ok' : ''}">${left === 0 ? 'Fits your budget' : BLUEPRINT ? 'Some pieces come later' : `${money(left)} more to finish`}</span>
           </div>
         </div>
         ${SLOTS.map(row).join('')}
@@ -3021,74 +3071,55 @@ function renderPreview() {
       </section>
 
       <section class="offer">
-        <div class="overline">Unlock your full wardrobe</div>
-        <h2 class="serif offer-h">Pick your plan.</h2>
-        <div class="tiers">${Object.entries(TIERS).map(([id, t]) => `
-          <button class="tier${state.tier === id ? ' on' : ''}" data-tier="${id}">
-            ${id === 'complete' ? '<span class="tier-flag">Most popular</span>' : ''}
-            <span class="tier-top"><span class="tier-name">${esc(t.name)}</span><span class="tier-price serif">£${t.price}</span></span>
-            <span class="tier-day">About ${perDay(t.price)} · one-off</span>
-            <span class="tier-line">${esc(t.line)}</span>
-            ${state.tier === id ? `<ul class="includes">${t.items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-            <span class="tick"></span>
-          </button>`).join('')}
-        </div>
-        <button class="btn" id="buy">Get ${esc(tierOf().name)} for £${tierOf().price}</button>
-        <p class="fine">One payment, no subscription. A personal stylist usually charges £150 or more for a single session.</p>
+        <div class="overline">Your ${esc(OFFER.name)}</div>
+        <h2 class="serif offer-h">Get the whole plan.</h2>
+        <ul class="includes">${OFFER.items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+        <div class="offer-price"><span class="serif">£${OFFER.price}</span><span>one-off, no subscription</span></div>
+        <button class="btn" id="buy">Get my Blueprint for £${OFFER.price}</button>
+        <p class="fine">14-day refund, no questions asked. <a href="/terms.html" target="_blank" rel="noopener">Terms and privacy</a></p>
       </section>
       <button class="link-quiet" id="reset" data-label="Start again">Start again</button>
     </div>`;
 }
 
-function renderCheckout() {
-  setFunnel(true);
-  const p = state.profile;
-  const pl = plan();
-  const first = p.lanes[0];
-  const t = tierOf();
-  screen.innerHTML = `
-    <div class="checkout">
-      <button class="back plain" id="checkoutBack">‹ Back</button>
-      <div class="overline" style="margin-top:22px">Checkout</div>
-      <h1 class="serif">Your full wardrobe plan</h1>
-      <section class="order">
-        <div class="order-item">
-          <div class="order-fig" style="--tint:${LOOKS[first].tint}">${avatarSVG(pl.looks[first])}</div>
-          <div class="meta">
-            <div class="name">${esc(t.name)} wardrobe plan</div>
-            <div class="small">${plural(p.lanes.length, 'look')} · ${plural(pl.pieceCount, 'piece')} · frame plan</div>
-          </div>
-          <div class="price">£${t.price}.00</div>
-        </div>
-        <div class="order-line"><span>Subscription</span><span>None</span></div>
-        <div class="order-line"><span>Works out at</span><span>${perDay(t.price)}</span></div>
-        <div class="order-total"><span>Total today</span><span class="serif">£${t.price}.00</span></div>
-      </section>
-      ${p.email ? `<p class="for">Plan for <b>${esc(p.email)}</b></p>` : ''}
-      <button class="btn" id="pay">Pay £${t.price}</button>
-      <p class="fine">One payment. No subscription. Access straight away.</p>
-    </div>`;
-}
-
-// Fake door: logs the click as buying intent, takes no payment, then opens the plan.
-function pay() {
+function startPayment() {
   const p = state.profile;
   record('checkout-clicks', {
-    name: p.name || '', email: p.email || '', price: `£${tierOf().price} ${tierOf().name}`, looks: p.lanes.join(', '), budget: budgetLabel(p.budget),
+    name: p.name || '', email: p.email || '', price: `£${OFFER.price} ${OFFER.name}`, src: state.src || 'direct',
+    looks: p.lanes.join(', '), budget: budgetLabel(p.budget),
   });
+  track('buy_tap');
+  if (STRIPE_LINK) {
+    const u = new URL(STRIPE_LINK);
+    if (p.email) u.searchParams.set('prefilled_email', p.email);
+    location.href = u.toString();
+    return;
+  }
   screen.innerHTML = `
     <div class="reveal">
       <div class="seal">✓</div>
-      <h1 class="serif">You’re early.</h1>
-      <p class="lede">Payments aren’t switched on yet, so you haven’t been charged. You’re one of the first people to try this, so the full wardrobe is yours free while we test it.</p>
-      <button class="btn" id="enter">See my full wardrobe</button>
+      <h1 class="serif">Your spot is saved.</h1>
+      <p class="lede">Payments open in the next few days, and you haven’t been charged. We’ll email ${p.email ? `<b>${esc(p.email)}</b>` : 'you'} the moment your Blueprint is ready to buy.</p>
+      <button class="btn ghost" id="backToPreview">Back to my preview</button>
     </div>`;
   window.scrollTo(0, 0);
 }
 
+function joinWaitlist() {
+  const p = state.profile;
+  if (!state.waitlisted) {
+    record('waitlist', { name: p.name || '', email: p.email || '', src: state.src || 'direct' });
+    track('waitlist');
+    state.waitlisted = true;
+    save();
+  }
+  render();
+  toast('You’re on the list. We’ll email you when the full plan is ready.');
+}
+
 function render() {
   if (!state.profile) return renderWelcome();
-  if (!state.unlocked) return state.view.checkout ? renderCheckout() : renderPreview();
+  if (!state.unlocked) return renderPreview();
   setFunnel(false);
   const v = state.view;
   tabs.classList.remove('hidden');
@@ -3123,7 +3154,6 @@ screen.addEventListener('click', (e) => {
     browseOrder = null; ringPos = null; touch();
     save(); return render();
   }
-  if (d.tier) { state.tier = d.tier; save(); return render(); }
   if (t.id === 'signout') return signOut();
   if (d.go) return go(d.go);
   if (d.look) return go('home', d.look);
@@ -3155,10 +3185,10 @@ screen.addEventListener('click', (e) => {
     }
     forgetAccount(); state = blank(); touch(); save(); render(); window.scrollTo(0, 0); return;
   }
-  if (t.id === 'buy' || 'locked' in d) { state.view = { tab: 'home', look: null, checkout: true }; save(); render(); window.scrollTo(0, 0); return; }
-  if (t.id === 'checkoutBack') { state.view = { tab: 'home', look: null }; save(); render(); return; }
-  if (t.id === 'pay') return pay();
-  if (t.id === 'enter') { state.unlocked = true; state.view = { tab: 'home', look: null }; save(); render(); window.scrollTo(0, 0); }
+  if ('locked' in d) { screen.querySelector('.offer')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+  if (t.id === 'buy') return startPayment();
+  if (t.id === 'backToPreview') { render(); window.scrollTo(0, 0); return; }
+  if ('waitlist' in d) return joinWaitlist();
 });
 
 screen.addEventListener('change', (e) => {
@@ -3175,9 +3205,25 @@ screen.addEventListener('submit', (e) => {
 
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
 
+const query = new URLSearchParams(location.search);
+const srcParam = (query.get('src') || '').toLowerCase();
+if (!state.src && /^[a-z0-9_-]{1,40}$/.test(srcParam)) { state.src = srcParam; save(); }
+track('visit');
+// Stripe sends him back here after paying. A soft gate: anyone with the link could open it, which is fine at test volume.
+const justPaid = query.get('paid') === '1' && /^cs_/.test(query.get('session_id') || '');
+if (justPaid) {
+  state.unlocked = true;
+  state.paidAt = Date.now();
+  state.view = { tab: 'home', look: null };
+  save();
+  track('paid');
+}
+if (query.has('src') || query.has('paid')) history.replaceState(null, '', location.pathname);
+
 render();
+if (justPaid) setTimeout(() => toast(state.profile ? 'Payment received. Your Blueprint is ready.' : 'Payment received. Build your profile and your Blueprint opens straight away.'), 400);
 try {
-  if (state.profile?.name && state.unlocked && !sessionStorage.getItem('greeted')) {
+  if (!justPaid && state.profile?.name && state.unlocked && !sessionStorage.getItem('greeted')) {
     sessionStorage.setItem('greeted', '1');
     setTimeout(() => toast(`Welcome back, ${state.profile.name}. Everything’s where you left it.`), 500);
   }

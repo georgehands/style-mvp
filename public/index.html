@@ -22,10 +22,13 @@
   </div>
   <!-- Netlify Forms reads these at deploy time. The app posts to them from proto.js. -->
   <form name="leads" data-netlify="true" hidden>
-    <input name="name"><input name="email"><input name="opt_in"><input name="goals"><input name="build"><input name="height"><input name="work"><input name="looks"><input name="budget"><input name="monthly">
+    <input name="name"><input name="email"><input name="opt_in"><input name="src"><input name="tried"><input name="goals"><input name="build"><input name="height"><input name="work"><input name="looks"><input name="budget"><input name="monthly">
   </form>
   <form name="checkout-clicks" data-netlify="true" hidden>
-    <input name="name"><input name="email"><input name="price"><input name="looks"><input name="budget">
+    <input name="name"><input name="email"><input name="price"><input name="src"><input name="looks"><input name="budget">
+  </form>
+  <form name="waitlist" data-netlify="true" hidden>
+    <input name="name"><input name="email"><input name="src">
   </form>
   <script src="catalogue.js"></script>
   <script src="art.js"></script>

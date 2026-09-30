@@ -1,6 +1,10 @@
 [build]
   publish = "public"
 
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
 # Always check for a newer file, so a returning visitor never mixes old and new scripts.
 [[headers]]
   for = "/*"
