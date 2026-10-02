@@ -1,5 +1,5 @@
 // Anonymous funnel counts, one JSON doc per day: { src: { event: count } }. No personal data.
-export const EVENT = /^(visit|start|step_\d{1,2}|finish|buy_tap|paid|waitlist|tried_\d)$/;
+export const EVENT = /^(visit|start|step_(\d{1,2}|[a-z]{2,12})|finish|buy_tap|paid|waitlist|tried_\d)$/;
 const MAX_SOURCES_PER_DAY = 300;
 
 export const cleanSrc = (s) => (typeof s === 'string' && /^[a-z0-9_-]{1,40}$/i.test(s) ? s.toLowerCase() : 'direct');

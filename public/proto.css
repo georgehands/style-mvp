@@ -917,6 +917,13 @@ main > .ref-hero { margin-bottom: 14px; }
 .waitlist b { display: block; font-weight: 600; font-size: 15px; }
 .waitlist .small { display: block; margin-top: 3px; font-size: 13px; line-height: 1.45; }
 .fine a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.more-sizes { margin-top: 18px; border: 1px solid var(--line); border-radius: 16px; padding: 4px 14px; }
+.more-sizes summary { cursor: pointer; padding: 12px 0; font-size: 14px; font-weight: 600; list-style: none; }
+.more-sizes summary::-webkit-details-marker { display: none; }
+.more-sizes summary::after { content: '+'; float: right; color: var(--muted); font-weight: 400; }
+.more-sizes[open] summary::after { content: '–'; }
+.more-sizes .small { margin: 0 0 12px; }
+.welcome .promise { margin-top: 28px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

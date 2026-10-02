@@ -3,11 +3,9 @@ const screen = document.getElementById('screen');
 const tabs = document.getElementById('tabs');
 
 const MONTHLY = { 'Under £50': 40, '£50–150': 100, '£150–300': 225, '£300+': 350 };
-const GOALS = ['Improve my overall look', 'Expand my wardrobe', 'Start again from scratch', 'Dress better for work', 'Find a style that’s actually me', 'Upgrade the basics'];
 const WORK = ['Office, smart', 'Office, casual', 'Work from home', 'On my feet or on site', 'Student'];
 const GYM = ['Rarely', '1–2 times a week', '3+ times a week'];
 const OUT = ['Rarely', 'Now and then', 'Most weekends'];
-const WEEKENDS = ['Outdoors', 'City and cafés', 'Sport', 'Travel', 'Mostly at home'];
 const FITS = ['Slim', 'Regular', 'Relaxed'];
 const COLOURS = ['Mostly neutrals', 'Earth tones', 'Happy with some colour'];
 const NEVER = ['Shorts', 'Hoodies', 'Boots', 'Blazers', 'Tight fits', 'Secondhand'];
@@ -30,9 +28,9 @@ const blank = () => ({
   unlocked: false, leadSent: '', createdAt: null, src: '', paidAt: null, waitlisted: false,
 });
 const blankProfile = () => ({
-  tried: [], goals: [], goalText: '',
+  tried: [],
   height: '', shape: '', broad: false, flags: [], chest: '', waist: '', inseam: '', shoe: '',
-  work: '', gym: '', out: '', weekends: [],
+  work: '', gym: '', out: '',
   playDown: [], proud: [],
   fit: '', colours: '', never: [],
   colour: null, colourSkipped: false, cSkin: '', cUnder: '', cHair: '', cEye: '',
@@ -224,7 +222,7 @@ async function handleRefFile(file, target) {
 
 function recommendLooks(d) {
   const rec = new Set(['Casual']);
-  if (/Office/.test(d.work) || d.goals.includes('Dress better for work')) rec.add('Smart Casual');
+  if (/Office/.test(d.work)) rec.add('Smart Casual');
   if (d.gym && d.gym !== 'Rarely') rec.add('Gym');
   if (d.out && d.out !== 'Rarely') rec.add('Night Out');
   if (d.refPalette) rec.add(closestLook(d.refPalette));
@@ -335,14 +333,6 @@ function track(e) {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const LOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
-const GOAL_NOTES = {
-  'Improve my overall look': 'Most of looking put together comes down to fit and colour, not spending more. That’s where we start.',
-  'Expand my wardrobe': 'Every new piece gets picked to go with the rest, so you get more outfits out of fewer clothes.',
-  'Start again from scratch': 'Starting clean is the easy version. Nothing old to design around.',
-  'Dress better for work': 'We’ll make sure one look covers work properly, then build the rest around it.',
-  'Find a style that’s actually me': 'Your answers steer the first picks. After that, everything you like or swap makes it more you.',
-  'Upgrade the basics': 'Basics carry most outfits, so better ones lift everything you already own.',
-};
 const COLOUR_WORDS = {
   'Mostly neutrals': 'navy, grey, white and black',
   'Earth tones': 'olive, tan, stone and brown',
@@ -1040,6 +1030,7 @@ function runAssess() {
 
 const STEPS = [
   {
+    key: 'tried',
     chapter: 0,
     title: 'What have you tried so far?',
     sub: 'Tap everything you’ve tried to sort your style. It helps us pitch your plan at the right level.',
@@ -1050,18 +1041,7 @@ const STEPS = [
       : null),
   },
   {
-    chapter: 0,
-    title: 'What do you want out of this?',
-    sub: 'Pick everything that fits.',
-    render: () => `
-      <div class="chips" data-multi="goals">${GOALS.map((g) => chip(g, draft.goals.includes(g))).join('')}</div>
-      <label class="field">Anything else? (optional)
-        <textarea id="goalText" rows="3" placeholder="e.g. I’ve got loads of clothes but nothing goes together">${esc(draft.goalText)}</textarea>
-      </label>`,
-    valid: () => draft.goals.length || draft.goalText.trim(),
-    note: () => (draft.goals.length ? { label: 'Stylist note', text: GOAL_NOTES[draft.goals[draft.goals.length - 1]] } : null),
-  },
-  {
+    key: 'build',
     chapter: 0,
     title: 'Your build.',
     sub: 'This decides proportions, not just sizes.',
@@ -1079,7 +1059,19 @@ const STEPS = [
           <span class="small">${esc(SHAPES[s])}</span>
         </button>`).join('')}
       </div>
-      <div class="chips" data-toggle="broad"><button type="button" class="chip${draft.broad ? ' on' : ''}" data-val="broad">My shoulders are broad</button></div>`,
+      <div class="chips" data-toggle="broad"><button type="button" class="chip${draft.broad ? ' on' : ''}" data-val="broad">My shoulders are broad</button></div>
+      <details class="more-sizes"${draft.chest || draft.waist || draft.inseam || draft.shoe ? ' open' : ''}>
+        <summary>Add your sizes for a sharper read <span class="small">optional</span></summary>
+        <div class="row">
+          <label class="field">Chest<input type="text" id="chest" placeholder="e.g. 40in or M" value="${esc(draft.chest)}"></label>
+          <label class="field">Waist<input type="text" id="waist" placeholder="e.g. 32in" value="${esc(draft.waist)}"></label>
+        </div>
+        <div class="row">
+          <label class="field">Inside leg<input type="text" id="inseam" placeholder="e.g. 30in" value="${esc(draft.inseam)}"></label>
+          <label class="field">Shoe<input type="text" id="shoe" placeholder="e.g. UK 9" value="${esc(draft.shoe)}"></label>
+        </div>
+        <p class="small">No tape? Use your labels: your jumper size for chest, and the W and L on jeans that fit you.</p>
+      </details>`,
     valid: () => heightIn(draft.height) && draft.shape,
     fig: true,
     note: () => {
@@ -1093,27 +1085,7 @@ const STEPS = [
     },
   },
   {
-    chapter: 0,
-    title: 'Your sizes.',
-    sub: 'Rough is fine. Tap a box to see how to measure it, with or without a tape.',
-    enter: () => { if (!MEASURE[guideKey] || guideKey === 'height') guideKey = 'chest'; },
-    render: () => `
-      <div class="row">
-        <label class="field">Chest<input type="text" id="chest" data-guide="chest" placeholder="e.g. 40in or M" value="${esc(draft.chest)}"></label>
-        <label class="field">Waist<input type="text" id="waist" data-guide="waist" placeholder="e.g. 32in" value="${esc(draft.waist)}"></label>
-      </div>
-      <div class="row">
-        <label class="field">Inside leg<input type="text" id="inseam" data-guide="inseam" placeholder="e.g. 30in" value="${esc(draft.inseam)}"></label>
-        <label class="field">Shoe<input type="text" id="shoe" data-guide="shoe" placeholder="e.g. UK 9" value="${esc(draft.shoe)}"></label>
-      </div>
-      <div id="guide" data-tabs="chest,waist,inseam,shoe">${guideCard(guideKey, ['chest', 'waist', 'inseam', 'shoe'])}</div>`,
-    valid: () => true,
-    note: () => {
-      const f = assess(draft).facts.find(([k]) => k === 'Chest to waist' || k === 'Leg length');
-      return f ? { label: 'Already reading you', text: `${f[0]}: ${f[1]}. ${f[2]}.` } : null;
-    },
-  },
-  {
+    key: 'body',
     chapter: 0,
     title: 'Should your clothes hide or show off anything?',
     sub: 'Most guys have a bit they’d rather people didn’t notice, and a bit they’re happy to show. Tap any that apply and we’ll pick cuts that do the work. Only you see this.',
@@ -1138,6 +1110,7 @@ const STEPS = [
     },
   },
   {
+    key: 'frame',
     chapter: 0,
     title: 'Reading your frame.',
     sub: 'Your answers, checked against what works on a build like yours.',
@@ -1147,20 +1120,21 @@ const STEPS = [
     next: 'Looks right, keep going',
   },
   {
+    key: 'week',
     chapter: 1,
     title: 'What does a normal week look like?',
     sub: 'So every look has somewhere to be worn.',
     render: () => `
       ${question('Work', 'work', WORK)}
       ${question('Gym', 'gym', GYM)}
-      ${question('Going out', 'out', OUT)}
-      ${question('Weekends', 'weekends', WEEKENDS, true, 'pick any')}`,
+      ${question('Going out', 'out', OUT)}`,
     valid: () => draft.work && draft.gym && draft.out,
     note: () => (draft.work && draft.gym && draft.out
       ? { label: 'Stylist note', text: `A week like that needs ${listJoin(recommendLooks(draft))}. Those get built first.` }
       : null),
   },
   {
+    key: 'style',
     chapter: 1,
     title: 'How do you like to wear things?',
     sub: 'This is where it gets specific to you.',
@@ -1176,6 +1150,7 @@ const STEPS = [
     },
   },
   {
+    key: 'colour',
     chapter: 1,
     title: 'Find your colours.',
     sub: 'One selfie tells us which colours suit your skin, hair and eyes. It’s read on your phone and never uploaded or saved.',
@@ -1188,75 +1163,35 @@ const STEPS = [
       : null),
   },
   {
-    chapter: 1,
-    title: 'Show us a look you love.',
-    sub: 'The quickest way to make this yours. We read the photo and build your wardrobe towards it.',
-    render: () => `
-      ${draft.refMode === 'image' ? refBlock(draft) : refUpload('Upload a photo', 'An outfit you like, someone whose style you rate, or a Pinterest screenshot.')}
-      ${draft.refMode === 'image' ? '' : `
-        <button type="button" class="ref-skip${draft.refMode === 'recommend' ? ' on' : ''}" data-ref="recommend">
-          <span><b>Skip for now</b><span class="small">The stylist decides from your answers. Add a photo any time.</span></span>
-          <span class="tick"></span>
-        </button>`}`,
-    valid: () => draft.refMode,
-    note: () => (draft.refMode === 'image'
-      ? { label: 'Stylist note', text: `Every pick now leans towards ${draft.refSummary.toLowerCase()}. Your closest look is ${closestLook(draft.refPalette)}, so it’s added to your recommendations.` }
-      : null),
-  },
-  {
-    chapter: 2,
-    title: 'Which looks do you want?',
-    sub: 'We’ve picked the ones that fit your week. Change anything.',
-    enter: () => { if (!draft.lanes.length) draft.lanes = recommendLooks(draft); },
-    render: () => {
-      const rec = recommendLooks(draft);
-      return `
-        <div class="look-pick" data-multi="lanes">${LOOK_ORDER.map((l) => `
-          <button type="button" class="look-opt${draft.lanes.includes(l) ? ' on' : ''}" data-val="${esc(l)}" style="--tint:${LOOKS[l].tint}">
-            <span class="look-opt-top"><span class="serif">${esc(l)}</span>${rec.includes(l) ? '<span class="rec-tag">Recommended</span>' : ''}</span>
-            <span class="small">${esc(LOOKS[l].tagline)}</span>
-            <span class="tick"></span>
-          </button>`).join('')}
-        </div>`;
-    },
-    valid: () => draft.lanes.length,
-    note: () => (draft.lanes.length > 1
-      ? { label: 'Stylist note', text: `${plural(draft.lanes.length, 'look')}. Where a piece works in more than one, it gets shared, so you don’t buy twice.` }
-      : null),
-  },
-  {
+    key: 'budget',
     chapter: 2,
     title: 'What’s your wardrobe budget?',
     sub: 'The total you’re happy to spend across every look. We’ll tell you what to buy first.',
+    enter: () => { if (!draft.lanes.length) draft.lanes = recommendLooks(draft); },
     render: () => `
       <div class="budget-card">
         <div class="small">Whole wardrobe</div>
         <div class="budget-val" id="budgetVal">${budgetLabel(draft.budget)}</div>
         <input type="range" id="budget" min="100" max="1025" step="25" value="${draft.budget}">
         <div class="range-ends"><span>£100</span><span>£1,000</span></div>
-      </div>
-      <h2 class="q">And what do you usually spend on clothes a month?</h2>
-      <p class="small" style="margin:0 0 14px">So we can tell you when you’ll have the rest.</p>
-      <div class="chips" data-single="monthly">${Object.keys(MONTHLY).map((m) => chip(m, draft.monthly === m)).join('')}</div>`,
-    valid: () => draft.monthly,
+      </div>`,
+    valid: () => true,
     note: () => {
       const pl = previewPlan(draft);
       const n = draft.lanes.length;
       const first = pl.ready.length
         ? `${budgetLabel(draft.budget)} finishes ${pl.ready.length === n ? `all ${plural(n, 'look')}` : `${pl.ready.length} of your ${n} looks`} straight away.`
         : `${budgetLabel(draft.budget)} won’t finish a whole look yet, so you’d start with the pieces that work hardest.`;
-      const rest = pl.later.length && draft.monthly
-        ? ` The rest in about ${plural(Math.ceil(pl.laterTotal / MONTHLY[draft.monthly]), 'month')} at what you usually spend.`
-        : '';
-      return { label: 'Your budget', text: first + rest };
+      return { label: 'Your plan', text: `${first} Your week gets ${listJoin(draft.lanes)}. Add or drop looks any time.` };
     },
   },
   {
+    key: 'save',
     chapter: 2,
     title: 'Save your profile.',
-    sub: 'So your stylist remembers you: your frame, your sizes, and everything you like and own.',
+    sub: 'Where should we keep your plan? Your stylist remembers your frame and everything you like and own.',
     render: () => `
-      <label class="field">First name
+      <label class="field">First name <span class="small">optional</span>
         <input type="text" id="name" autocomplete="given-name" placeholder="e.g. Sam" value="${esc(draft.name)}">
       </label>
       <label class="field">Email
@@ -1267,7 +1202,7 @@ const STEPS = [
         <span>Send me style tips and new looks now and then. Unsubscribe any time.</span>
       </label>
       <p class="fine left">Saved on this device, and sent to us so we can reach you about your plan. We won’t sell or share your email. <a href="/terms.html" target="_blank" rel="noopener">Privacy</a></p>`,
-    valid: () => draft.name.trim() && EMAIL_RE.test(draft.email.trim()),
+    valid: () => EMAIL_RE.test(draft.email.trim()),
     note: () => {
       const pl = previewPlan(draft);
       return { label: 'Ready to build', text: `${plural(draft.lanes.length, 'look')} and ${plural(pl.pieceCount, 'piece')}, built around ${budgetLabel(draft.budget)}.` };
@@ -1521,7 +1456,7 @@ function startOnboarding() {
 
 function renderStep(dir = 0) {
   const s = STEPS[step];
-  if (dir > 0) track(`step_${step + 1}`);
+  if (dir > 0) track(`step_${s.key}`);
   s.enter?.();
   syncFlags(draft);
   const inCh = STEPS.map((_, i) => i).filter((i) => STEPS[i].chapter === s.chapter);
@@ -1635,6 +1570,7 @@ function refreshNote() {
 function finishOnboarding() {
   onboarding = false;
   draft.email = draft.email.trim();
+  if (!draft.lanes.length) draft.lanes = recommendLooks(draft);
   syncFlags(draft);
   state.profile = draft;
   state.createdAt ||= Date.now();
@@ -1644,7 +1580,7 @@ function finishOnboarding() {
   if (draft.email !== state.leadSent) {
     record('leads', {
       name: draft.name.trim(), email: draft.email, opt_in: draft.optIn ? 'yes' : 'no', src: state.src || 'direct',
-      tried: draft.tried.join(', '), goals: draft.goals.join(', '), build: `${a.name} (${draft.flags.join(', ')})`, height: draft.height,
+      tried: draft.tried.join(', '), build: `${a.name} (${draft.flags.join(', ')})`, height: draft.height,
       work: draft.work, looks: draft.lanes.join(', '), budget: budgetLabel(draft.budget), monthly: draft.monthly,
     });
     state.leadSent = draft.email;
@@ -2358,7 +2294,7 @@ function renderShop() {
     ${pl.later.length ? `
       <section class="card later">
         <div class="list-head"><span>Buy later</span><span class="v">${BLUEPRINT ? plural(pl.later.length, 'piece') : money(pl.laterTotal)}</span></div>
-        <div class="meta-line">About ${plural(months, 'month')} at what you usually spend.</div>
+        ${p.monthly ? `<div class="meta-line">About ${plural(months, 'month')} at what you usually spend.</div>` : ''}
         ${pl.later.map((id) => shopRow(id, pl)).join('')}
       </section>` : '<p class="note">That’s everything. Every look is covered.</p>'}`;
 }
@@ -2894,15 +2830,15 @@ function renderWelcome() {
         <div class="fig-s">${fig('Quiet Luxury')}</div>
       </div>
       <h1 class="serif">Know exactly what to wear.</h1>
-      <p class="lede">We read your frame, your week and your budget, then build one wardrobe around you: every outfit, what to buy first, and why each piece works on your build.</p>
+      <p class="lede">A wardrobe plan built around your frame, your colours and your week.</p>
+      <button class="btn" id="start">Start my wardrobe</button>
+      <p class="fine">About 2 minutes. Your first look is free. <a href="/terms.html" target="_blank" rel="noopener">Terms and privacy</a></p>
       <ul class="promise">
         <li><span><b>Cut for your frame</b>Picked for your height and shape, and cut to hide or show off whatever you choose.</span></li>
         <li><span><b>Colours that suit you</b>Read from a quick selfie on your phone. Never uploaded, never saved.</span></li>
         <li><span><b>Everything goes together</b>Every piece works with the rest, with timeless pieces first so nothing dates.</span></li>
-        <li><span><b>Inside your budget</b>What to buy now, and roughly when you’ll have the rest.</span></li>
+        <li><span><b>Inside your budget</b>What to buy first, in order, so nothing is wasted.</span></li>
       </ul>
-      <button class="btn" id="start">Start my wardrobe</button>
-      <p class="fine">Takes about 4 minutes. Your first look is free. <a href="/terms.html" target="_blank" rel="noopener">Terms and privacy</a></p>
       <button class="link-quiet signin-link" id="signin">Already have a profile? Sign in</button>
     </div>`;
   screen.querySelector('#start').onclick = () => { track('start'); startOnboarding(); window.scrollTo(0, 0); };

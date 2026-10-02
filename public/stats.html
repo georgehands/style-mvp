@@ -36,7 +36,11 @@ fetch('/api/stats').then((r) => r.json()).then(({ totals }) => {
   const all = {};
   srcs.forEach((s) => Object.entries(totals[s]).forEach(([k, n]) => { all[k] = (all[k] || 0) + n; }));
   const row = (name, t, cls = '') => `<tr class="${cls}"><td>${esc(name)}</td>${COLS.map(([k]) => `<td>${t[k] || 0}</td>`).join('')}<td class="rate">${pct(t.finish || 0, t.visit || 0)}</td><td class="rate">${pct(t.paid || 0, t.finish || 0)}</td></tr>`;
-  const steps = Object.keys(all).filter((k) => k.startsWith('step_')).sort((a, b) => a.slice(5) - b.slice(5));
+  // Named steps since 2 October 2026, in intake order. Numbered steps are from the older 13-step intake.
+  const ORDER = ['tried', 'build', 'body', 'frame', 'week', 'style', 'colour', 'budget', 'save'];
+  const named = ORDER.map((k) => `step_${k}`).filter((k) => all[k]);
+  const numbered = Object.keys(all).filter((k) => /^step_\d+$/.test(k)).sort((a, b) => a.slice(5) - b.slice(5));
+  const steps = [...named, ...numbered];
   document.getElementById('out').innerHTML = `
     <h2>By source</h2>
     <div class="wrap"><table><tr><th>Source</th>${COLS.map(([, l]) => `<th>${l}</th>`).join('')}<th>Finish rate</th><th>Paid rate</th></tr>
@@ -44,7 +48,7 @@ fetch('/api/stats').then((r) => r.json()).then(({ totals }) => {
     <h2>Where people stop</h2>
     <div class="wrap"><table><tr><th>Reached</th><th>Visits</th><th>Share of starters</th></tr>
       <tr><td>Started</td><td>${all.start || 0}</td><td>100%</td></tr>
-      ${steps.map((k) => `<tr><td>Step ${k.slice(5)}</td><td>${all[k]}</td><td>${pct(all[k], all.start || 0)}</td></tr>`).join('')}
+      ${steps.map((k) => `<tr><td>${/^step_\d+$/.test(k) ? `Old step ${k.slice(5)}` : k.slice(5)}</td><td>${all[k]}</td><td>${pct(all[k], all.start || 0)}</td></tr>`).join('')}
       <tr><td>Finished</td><td>${all.finish || 0}</td><td>${pct(all.finish || 0, all.start || 0)}</td></tr></table></div>
     <h2>What they've tried (awareness)</h2>
     <div class="wrap"><table><tr><th>Answer</th><th>People</th></tr>
