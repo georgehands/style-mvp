@@ -316,14 +316,23 @@ const priceTag = (n) => (BLUEPRINT ? '' : money(n));
 const TRIED = ['Nothing yet', 'Asking friends or family', 'Pinterest or Instagram', 'YouTube or TikTok advice', 'ChatGPT or another AI', 'A stylist or shop assistant', 'A colour analysis'];
 
 // Anonymous funnel counts: one event of each kind per visit, tagged with the link he came from.
+const deviceKind = () => (matchMedia('(max-width: 767px)').matches ? 'm' : 'd');
+const bucket = (ms, cuts) => cuts.filter((c) => ms >= c).length;
+const dwellBucket = (ms) => bucket(ms, [10000, 30000, 60000]);
+const loadBucket = (ms) => bucket(ms, [2000, 5000, 10000]);
+let stepShownKey = '';
+let stepShownAt = 0;
+let previewScroll = null;
+
 function track(e) {
+  try { if (localStorage.getItem('notrack')) return; } catch { /* storage blocked: track anyway */ }
   try {
     const seen = JSON.parse(sessionStorage.getItem('tracked') || '[]');
     if (seen.includes(e)) return;
     seen.push(e);
     sessionStorage.setItem('tracked', JSON.stringify(seen));
   } catch { /* storage blocked: may double count, which is fine */ }
-  const body = JSON.stringify({ e, src: state.src || 'direct' });
+  const body = JSON.stringify({ e, src: state.src || 'direct', d: deviceKind() });
   try {
     if (!navigator.sendBeacon?.('/api/event', new Blob([body], { type: 'application/json' }))) {
       fetch('/api/event', { method: 'POST', body, keepalive: true }).catch(() => {});
@@ -1287,7 +1296,7 @@ function mountColourStep() {
   screen.querySelectorAll('[data-colour]').forEach((b) => b.addEventListener('click', () => {
     const act = b.dataset.colour;
     colourMsg = '';
-    if (act === 'skip') { draft.colour = null; draft.colourSkipped = true; step++; renderStep(1); window.scrollTo(0, 0); return; }
+    if (act === 'skip') { track('colour_skip'); draft.colour = null; draft.colourSkipped = true; step++; renderStep(1); window.scrollTo(0, 0); return; }
     if (act === 'pick') { colourUI = 'pick'; draft.colour = colourFromPicks(draft); }
     if (act === 'scan') { colourUI = ''; draft.colour = null; }
     renderStep();
@@ -1302,7 +1311,7 @@ function mountColourStep() {
   if (pickEl) pickEl.addEventListener('click', (e) => {
     if (!e.target.closest('[data-val]')) return;
     draft.colour = colourFromPicks(draft);
-    if (draft.colour) draft.colourSkipped = false;
+    if (draft.colour) { draft.colourSkipped = false; track('colour_pick'); }
     screen.querySelector('#colourResult').innerHTML = draft.colour ? colourResultHTML(draft.colour) : '';
     refreshNext();
   });
@@ -1376,6 +1385,7 @@ async function scanFace(file) {
   if (!file.type.startsWith('image/')) { colourMsg = 'That doesn’t look like a photo. Try again.'; renderStep(); return; }
   colourUI = 'scanning';
   colourMsg = '';
+  track('scan_start');
   renderStep();
   const root = screen.querySelector('.face-scan');
   const cv = screen.querySelector('#faceCanvas');
@@ -1397,8 +1407,11 @@ async function scanFace(file) {
     let hair;
     let eye;
     let result;
+    let waited = 0;
     await stage(root, 0, async () => {
+      const t0 = performance.now();
       const model = await faceModel();
+      waited += performance.now() - t0;
       lm = model.detect(src).faceLandmarks?.[0];
       if (!lm) throw new Error('no-face');
       await drawMesh(cv, src, lm);
@@ -1412,7 +1425,9 @@ async function scanFace(file) {
     const faceW = Math.max(...xs) - Math.min(...xs);
     const faceH = Math.max(...ys) - Math.min(...ys);
     await stage(root, 1, async () => {
+      const t1 = performance.now();
       try { mask = segmentMask(await segModel(), src); } catch { mask = null; }
+      waited += performance.now() - t1;
       const box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
       if (mask) skinRead = classColour(pixels, mask, 3, 0.3, 0.8, box);
       skin = skinRead.hex || readSkin(pixels, lm);
@@ -1428,8 +1443,11 @@ async function scanFace(file) {
     result.tips = photoChecks(pixels, faceW, skinRead);
     draft.colour = result;
     draft.colourSkipped = false;
+    track(`load_${loadBucket(waited)}`);
+    track('scan_done');
   } catch (e) {
     if (e?.message !== 'left') {
+      track('scan_fail');
       colourMsg = e?.message === 'no-face'
         ? 'We couldn’t find a face in that photo. Try again facing a window, or pick your colours yourself.'
         : 'The scan couldn’t run on this device. Pick your colours yourself instead, it takes 20 seconds.';
@@ -1457,6 +1475,7 @@ function startOnboarding() {
 function renderStep(dir = 0) {
   const s = STEPS[step];
   if (dir > 0) track(`step_${s.key}`);
+  if (stepShownKey !== s.key) { stepShownKey = s.key; stepShownAt = performance.now(); }
   s.enter?.();
   syncFlags(draft);
   const inCh = STEPS.map((_, i) => i).filter((i) => STEPS[i].chapter === s.chapter);
@@ -1488,6 +1507,11 @@ function renderStep(dir = 0) {
   screen.querySelectorAll('input[type=text], input[type=email], textarea').forEach((el) => {
     el.addEventListener('input', () => { draft[el.id] = el.value; refreshNext(); });
   });
+  const emailEl = screen.querySelector('#email');
+  if (emailEl) {
+    emailEl.addEventListener('focus', () => track('email_focus'), { once: true });
+    emailEl.addEventListener('blur', () => { if (emailEl.value.trim() && !EMAIL_RE.test(emailEl.value.trim())) track('err_email'); });
+  }
   screen.querySelectorAll('[data-guide]').forEach((el) => el.addEventListener('focus', () => showGuide(el.dataset.guide)));
   screen.querySelector('[data-show-guide]')?.addEventListener('click', (e) => showGuide(e.currentTarget.dataset.showGuide));
   screen.querySelector('#guide')?.addEventListener('click', (e) => {
@@ -1526,12 +1550,14 @@ function renderStep(dir = 0) {
   if (remove) remove.onclick = () => { Object.assign(draft, { refMode: '', refImage: null, refPalette: null, refSummary: '' }); renderStep(); };
 
   screen.querySelector('#back').onclick = () => {
+    track(`back_${s.key}`);
     if (step === 0) { onboarding = false; render(); window.scrollTo(0, 0); return; }
     step--;
     renderStep(-1);
     window.scrollTo(0, 0);
   };
   screen.querySelector('#next').onclick = () => {
+    track(`t_${s.key}_${dwellBucket(performance.now() - stepShownAt)}`);
     if (s.render === STEPS[0].render) draft.tried.forEach((t) => track(`tried_${TRIED.indexOf(t)}`));
     if (!last) { step++; renderStep(1); window.scrollTo(0, 0); return; }
     finishOnboarding();
@@ -1552,6 +1578,7 @@ function showGuide(key) {
 
 function refreshNext() {
   syncFlags(draft);
+  if (STEPS[step].key === 'build' && draft.height.trim().length >= 3 && !heightIn(draft.height)) track('err_height');
   screen.querySelector('#next').disabled = !STEPS[step].valid();
   refreshNote();
 }
@@ -3016,6 +3043,17 @@ function renderPreview() {
       </section>
       <button class="link-quiet" id="reset" data-label="Start again">Start again</button>
     </div>`;
+  track('preview_seen');
+  previewScroll = () => {
+    const max = document.documentElement.scrollHeight - innerHeight;
+    if (max <= 0) return;
+    const f = scrollY / max;
+    if (f >= 0.5) track('scroll_50');
+    if (f >= 0.9) track('scroll_90');
+    const offerEl = screen.querySelector('.offer');
+    if (offerEl && offerEl.getBoundingClientRect().top < innerHeight * 0.75) track('offer_seen');
+  };
+  window.addEventListener('scroll', previewScroll, { passive: true });
 }
 
 function startPayment() {
@@ -3052,6 +3090,7 @@ function joinWaitlist() {
 }
 
 function render() {
+  if (previewScroll) { window.removeEventListener('scroll', previewScroll); previewScroll = null; }
   if (!state.profile) return renderWelcome();
   if (!state.unlocked) return renderPreview();
   setFunnel(false);
@@ -3141,6 +3180,11 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet
 const query = new URLSearchParams(location.search);
 const srcParam = (query.get('src') || '').toLowerCase();
 if (!state.src && /^[a-z0-9_-]{1,40}$/.test(srcParam)) { state.src = srcParam; save(); }
+if (query.has('notrack')) {
+  try { query.get('notrack') === '0' ? localStorage.removeItem('notrack') : localStorage.setItem('notrack', '1'); } catch { /* storage blocked */ }
+}
+window.addEventListener('error', () => track('err_js'));
+window.addEventListener('unhandledrejection', () => track('err_js'));
 track('visit');
 // Stripe sends him back here after paying. A soft gate: anyone with the link could open it, which is fine at test volume.
 const justPaid = query.get('paid') === '1' && /^cs_/.test(query.get('session_id') || '');
@@ -3151,9 +3195,10 @@ if (justPaid) {
   save();
   track('paid');
 }
-if (query.has('src') || query.has('paid')) history.replaceState(null, '', location.pathname);
+if (query.has('src') || query.has('paid') || query.has('notrack')) history.replaceState(null, '', location.pathname);
 
 render();
+if (query.has('notrack')) setTimeout(() => toast(query.get('notrack') === '0' ? 'Tracking is back on for this device.' : 'Tracking is off on this device.'), 400);
 if (justPaid) setTimeout(() => toast(state.profile ? 'Payment received. Your Blueprint is ready.' : 'Payment received. Build your profile and your Blueprint opens straight away.'), 400);
 try {
   if (!justPaid && state.profile?.name && state.unlocked && !sessionStorage.getItem('greeted')) {

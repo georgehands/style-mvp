@@ -7,53 +7,186 @@
 <title>Funnel · Style, Decided</title>
 <style>
   body { margin: 0; background: #f5f4f0; color: #1a1b19; font: 15px/1.5 system-ui, sans-serif; }
-  main { max-width: 900px; margin: 0 auto; padding: 28px 16px 60px; }
+  main { max-width: 960px; margin: 0 auto; padding: 28px 16px 70px; }
   h1 { font-size: 24px; margin: 0 0 4px; }
-  h2 { font-size: 17px; margin: 30px 0 8px; }
-  p { color: #6b6d68; margin: 0 0 14px; }
-  .wrap { overflow-x: auto; }
+  h2 { font-size: 17px; margin: 34px 0 4px; }
+  p, .note { color: #6b6d68; margin: 0 0 12px; font-size: 14px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; margin: 14px 0 6px; padding: 12px 14px; background: #fff; border: 1px solid #e2e0da; border-radius: 12px; font-size: 14px; }
+  .filters label { display: flex; gap: 6px; align-items: center; }
+  .wrap { overflow-x: auto; margin-bottom: 4px; }
   table { border-collapse: collapse; width: 100%; background: #fff; font-variant-numeric: tabular-nums; }
   th, td { padding: 8px 10px; border-bottom: 1px solid #e2e0da; text-align: right; white-space: nowrap; }
   th:first-child, td:first-child { text-align: left; }
   th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #6b6d68; }
   tr.total td { font-weight: 700; }
-  .rate { color: #2f6b4a; font-weight: 600; }
+  .good { color: #2f6b4a; font-weight: 600; }
+  .bad { color: #b3402a; font-weight: 700; }
+  .banner { padding: 14px 16px; border-radius: 12px; background: #fff; border: 1px solid #e2e0da; margin: 16px 0 0; font-size: 15px; }
+  .banner b { color: #b3402a; }
+  .warn { background: #fff7e6; border-color: #ecd9a8; }
+  .bar { display: inline-block; height: 8px; background: #b99a62; border-radius: 4px; vertical-align: middle; }
+  code { font: 13px ui-monospace, monospace; }
+  .tool { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 8px 0; }
+  .tool select, .tool input { padding: 7px 8px; border: 1px solid #cfcdc6; border-radius: 8px; background: #fff; font-size: 14px; }
+  #link { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #cfcdc6; border-radius: 8px; font: 13px ui-monospace, monospace; }
 </style>
 </head>
 <body>
 <main>
   <h1>Funnel</h1>
-  <p>Anonymous counts, one of each event per visit. Rates: finished per visit, paid per finished.</p>
+  <p>Anonymous counts. Each event is counted once per visit. To stop counting your own testing, open <code>/?notrack=1</code> on each of your devices (<code>/?notrack=0</code> turns it back on).</p>
+
+  <div class="filters">
+    <label>From <input type="date" id="from"></label>
+    <label><input type="checkbox" id="hideTest" checked> Hide test traffic</label>
+    <label>Device
+      <select id="device"><option value="">All</option><option value="m">Mobile</option><option value="d">Desktop</option><option value="u">Unknown</option></select>
+    </label>
+  </div>
+
   <div id="out">Loading…</div>
+
+  <h2>Tagged link builder</h2>
+  <p class="note">Every post gets its own tag, so you can see which one brings people in. Format: platform, topic, hook, post number.</p>
+  <div class="tool">
+    <select id="lp"><option value="tt">TikTok</option><option value="ig">Instagram</option><option value="yt">YouTube</option><option value="rd">Reddit</option><option value="dm">DM</option></select>
+    <select id="lt"><option value="p1">1 Dress for your frame</option><option value="p2">2 Your colours</option><option value="p3">3 Why nothing matches</option><option value="p4">4 The tool</option><option value="p5">5 Reddit answer</option></select>
+    <select id="lh"><option value="h1">Hook 1 curiosity</option><option value="h2">Hook 2 pain</option><option value="h3">Hook 3 contrast</option></select>
+    <input type="number" id="ln" min="1" max="99" value="1" title="Post number">
+  </div>
+  <input id="link" readonly>
 </main>
 <script>
+const KEYS = ['tried', 'build', 'body', 'frame', 'week', 'style', 'colour', 'budget', 'save'];
+const LABEL = { tried: 'What have you tried', build: 'Build and height', body: 'Hide or show off', frame: 'Frame reading', week: 'Your week', style: 'How you wear things', colour: 'Colours', budget: 'Budget', save: 'Email' };
 const TRIED = ['Nothing yet', 'Asking friends or family', 'Pinterest or Instagram', 'YouTube or TikTok advice', 'ChatGPT or another AI', 'A stylist or shop assistant', 'A colour analysis'];
-const COLS = [['visit', 'Visits'], ['start', 'Started'], ['finish', 'Finished'], ['buy_tap', 'Tapped Buy'], ['paid', 'Paid'], ['waitlist', 'Waitlist']];
+const $ = (id) => document.getElementById(id);
 const pct = (a, b) => (b ? `${Math.round((a / b) * 1000) / 10}%` : '–');
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-fetch('/api/stats').then((r) => r.json()).then(({ totals }) => {
-  const srcs = Object.keys(totals).sort((a, b) => (totals[b].visit || 0) - (totals[a].visit || 0));
-  const all = {};
-  srcs.forEach((s) => Object.entries(totals[s]).forEach(([k, n]) => { all[k] = (all[k] || 0) + n; }));
-  const row = (name, t, cls = '') => `<tr class="${cls}"><td>${esc(name)}</td>${COLS.map(([k]) => `<td>${t[k] || 0}</td>`).join('')}<td class="rate">${pct(t.finish || 0, t.visit || 0)}</td><td class="rate">${pct(t.paid || 0, t.finish || 0)}</td></tr>`;
-  // Named steps since 2 October 2026, in intake order. Numbered steps are from the older 13-step intake.
-  const ORDER = ['tried', 'build', 'body', 'frame', 'week', 'style', 'colour', 'budget', 'save'];
-  const named = ORDER.map((k) => `step_${k}`).filter((k) => all[k]);
-  const numbered = Object.keys(all).filter((k) => /^step_\d+$/.test(k)).sort((a, b) => a.slice(5) - b.slice(5));
-  const steps = [...named, ...numbered];
-  document.getElementById('out').innerHTML = `
-    <h2>By source</h2>
-    <div class="wrap"><table><tr><th>Source</th>${COLS.map(([, l]) => `<th>${l}</th>`).join('')}<th>Finish rate</th><th>Paid rate</th></tr>
-      ${srcs.map((s) => row(s, totals[s])).join('')}${row('All', all, 'total')}</table></div>
-    <h2>Where people stop</h2>
-    <div class="wrap"><table><tr><th>Reached</th><th>Visits</th><th>Share of starters</th></tr>
-      <tr><td>Started</td><td>${all.start || 0}</td><td>100%</td></tr>
-      ${steps.map((k) => `<tr><td>${/^step_\d+$/.test(k) ? `Old step ${k.slice(5)}` : k.slice(5)}</td><td>${all[k]}</td><td>${pct(all[k], all.start || 0)}</td></tr>`).join('')}
-      <tr><td>Finished</td><td>${all.finish || 0}</td><td>${pct(all.finish || 0, all.start || 0)}</td></tr></table></div>
-    <h2>What they've tried (awareness)</h2>
-    <div class="wrap"><table><tr><th>Answer</th><th>People</th></tr>
-      ${TRIED.map((t, i) => `<tr><td>${esc(t)}</td><td>${all[`tried_${i}`] || 0}</td></tr>`).join('')}</table></div>`;
-}).catch(() => { document.getElementById('out').textContent = 'Stats only work on the live site.'; });
+let DATA = null;
+
+function sum(rows) {
+  const t = {};
+  rows.forEach((r) => Object.entries(r.ev).forEach(([k, n]) => { t[k] = (t[k] || 0) + n; }));
+  return t;
+}
+
+function collect(days, { useFrom, useDevice }) {
+  const from = useFrom ? $('from').value : '';
+  const dev = useDevice ? $('device').value : '';
+  const hideTest = $('hideTest').checked;
+  const rows = [];
+  Object.entries(days).forEach(([day, buckets]) => {
+    if (from && day < from) return;
+    Object.entries(buckets).forEach(([key, ev]) => {
+      const [src, d = 'u'] = key.split('~');
+      if (hideTest && /test/.test(src)) return;
+      if (dev && d !== dev) return;
+      rows.push({ day, src, d, ev });
+    });
+  });
+  return rows;
+}
+
+function render() {
+  const rows = collect(DATA.days, { useFrom: true, useDevice: true });
+  const all = sum(rows);
+  const bySrc = {};
+  rows.forEach((r) => { (bySrc[r.src] ||= []).push(r); });
+  const srcs = Object.keys(bySrc).sort((a, b) => (sum(bySrc[b]).visit || 0) - (sum(bySrc[a]).visit || 0));
+  const starts = all.start || 0;
+  let html = '';
+
+  // Biggest leak
+  const seq = [['start', 'Start'], ...KEYS.map((k) => [`step_${k}`, LABEL[k]]), ['finish', 'Finished']];
+  const leaks = [];
+  for (let i = 1; i < seq.length; i++) {
+    const prev = all[seq[i - 1][0]] || 0;
+    const cur = all[seq[i][0]] || 0;
+    if (prev >= 5) leaks.push({ from: seq[i - 1][1], to: seq[i][1], share: (prev - cur) / prev, prev });
+  }
+  leaks.sort((a, b) => b.share - a.share);
+  if (starts < 30) html += `<div class="banner warn"><b>Too early to trust.</b> ${starts} people have started. Wait for about 100 starts before changing anything because of these numbers.</div>`;
+  if (leaks.length) html += `<div class="banner">Biggest leak: <b>${esc(leaks[0].from)} to ${esc(leaks[0].to)}</b>. ${Math.round(leaks[0].share * 100)}% of the ${leaks[0].prev} who got to "${esc(leaks[0].from)}" didn't reach the next step.</div>`;
+
+  // By source
+  const COLS = [['visit', 'Visits'], ['start', 'Started'], ['finish', 'Finished'], ['buy_tap', 'Tapped Buy'], ['paid', 'Paid'], ['waitlist', 'Waitlist']];
+  const srow = (name, t, cls = '') => `<tr class="${cls}"><td>${esc(name)}</td>${COLS.map(([k]) => `<td>${t[k] || 0}</td>`).join('')}<td>${pct(t.start || 0, t.visit || 0)}</td><td>${pct(t.finish || 0, t.start || 0)}</td><td>${pct(t.paid || 0, t.finish || 0)}</td></tr>`;
+  html += `<h2>By source</h2><p class="note">Start rate is started per visit. Finish rate is finished per start. Paid rate is paid per finish.</p>
+    <div class="wrap"><table><tr><th>Source</th>${COLS.map(([, l]) => `<th>${l}</th>`).join('')}<th>Start rate</th><th>Finish rate</th><th>Paid rate</th></tr>
+    ${srcs.map((s) => srow(s, sum(bySrc[s]))).join('')}${srow('All', all, 'total')}</table></div>`;
+
+  // Step by step
+  const stepRows = [['start', 'Started the intake']].concat(KEYS.map((k) => [`step_${k}`, `Reached: ${LABEL[k]}`]), [['finish', 'Finished']]);
+  html += `<h2>Where people stop</h2><p class="note">Share lost is the drop since the step before. Red means more than 15% lost.</p>
+    <div class="wrap"><table><tr><th>Step</th><th>People</th><th>Of starters</th><th>Share lost</th><th></th></tr>
+    ${stepRows.map(([k, label], i) => {
+      const n = all[k] || 0;
+      const prev = i ? all[stepRows[i - 1][0]] || 0 : 0;
+      const lost = i && prev ? (prev - n) / prev : null;
+      const cls = lost === null ? '' : lost > 0.15 ? 'bad' : 'good';
+      return `<tr><td>${esc(label)}</td><td>${n}</td><td>${pct(n, starts)}</td><td class="${cls}">${lost === null ? '–' : `${Math.round(lost * 100)}%`}</td><td><span class="bar" style="width:${starts ? Math.round((n / starts) * 120) : 0}px"></span></td></tr>`;
+    }).join('')}</table></div>`;
+
+  // Time on step
+  html += `<h2>Time on each step</h2><p class="note">How long people stayed before tapping Continue. A lot of 30 seconds or more means hesitation or confusion. Only counts people who tapped Continue.</p>
+    <div class="wrap"><table><tr><th>Step</th><th>Under 10s</th><th>10 to 30s</th><th>30 to 60s</th><th>Over 60s</th><th>Over 30s</th></tr>
+    ${KEYS.map((k) => {
+      const b = [0, 1, 2, 3].map((i) => all[`t_${k}_${i}`] || 0);
+      const tot = b.reduce((a, c) => a + c, 0);
+      const slow = b[2] + b[3];
+      return `<tr><td>${esc(LABEL[k])}</td>${b.map((n) => `<td>${n}</td>`).join('')}<td class="${tot >= 5 && slow / tot > 0.4 ? 'bad' : ''}">${pct(slow, tot)}</td></tr>`;
+    }).join('')}</table></div>`;
+
+  // Friction
+  const sd = all.scan_start || 0;
+  const back = KEYS.map((k) => `<tr><td>Back tapped on: ${esc(LABEL[k])}</td><td>${all[`back_${k}`] || 0}</td></tr>`).join('');
+  html += `<h2>Friction</h2><div class="wrap"><table><tr><th>Signal</th><th>Count</th></tr>
+    <tr><td>Height typed in a way we couldn't read</td><td>${all.err_height || 0}</td></tr>
+    <tr><td>Clicked into email</td><td>${all.email_focus || 0}</td></tr>
+    <tr><td>Email typed wrongly</td><td>${all.err_email || 0}</td></tr>
+    <tr><td>Colours: started the face scan</td><td>${sd}</td></tr>
+    <tr><td>Colours: scan finished</td><td>${all.scan_done || 0} (${pct(all.scan_done || 0, sd)} of scans)</td></tr>
+    <tr><td>Colours: scan failed</td><td class="${sd >= 5 && (all.scan_fail || 0) / sd > 0.25 ? 'bad' : ''}">${all.scan_fail || 0}</td></tr>
+    <tr><td>Colours: picked by swatch</td><td>${all.colour_pick || 0}</td></tr>
+    <tr><td>Colours: skipped</td><td>${all.colour_skip || 0}</td></tr>
+    <tr><td>Scan model load: under 2s / 2 to 5s / 5 to 10s / over 10s</td><td class="${(all.load_2 || 0) + (all.load_3 || 0) ? 'bad' : ''}">${[0, 1, 2, 3].map((i) => all[`load_${i}`] || 0).join(' / ')}</td></tr>
+    <tr><td>Page errors (JavaScript)</td><td class="${all.err_js ? 'bad' : ''}">${all.err_js || 0}</td></tr>
+    ${back}</table></div>`;
+
+  // Offer page
+  const ps = all.preview_seen || 0;
+  const offer = [['preview_seen', 'Saw the result and offer page'], ['scroll_50', 'Scrolled halfway'], ['scroll_90', 'Scrolled to the bottom'], ['offer_seen', 'Saw the price'], ['buy_tap', 'Tapped Buy'], ['paid', 'Paid']];
+  html += `<h2>The offer page</h2><div class="wrap"><table><tr><th>Step</th><th>People</th><th>Of those who saw it</th></tr>
+    ${offer.map(([k, l]) => `<tr><td>${l}</td><td>${all[k] || 0}</td><td>${pct(all[k] || 0, ps)}</td></tr>`).join('')}</table></div>`;
+
+  // Device (ignores the date and device filters)
+  const devRows = {};
+  collect(DATA.days, { useFrom: false, useDevice: false }).forEach((r) => { (devRows[r.d] ||= []).push(r); });
+  const dn = { m: 'Mobile', d: 'Desktop', u: 'Unknown (before device tracking)' };
+  html += `<h2>Mobile or desktop</h2><p class="note">All dates. Ignores the date and device filters.</p><div class="wrap"><table><tr><th>Device</th><th>Visits</th><th>Started</th><th>Finished</th><th>Tapped Buy</th><th>Finish rate</th></tr>
+    ${Object.keys(dn).filter((d) => devRows[d]).map((d) => { const t = sum(devRows[d]); return `<tr><td>${dn[d]}</td><td>${t.visit || 0}</td><td>${t.start || 0}</td><td>${t.finish || 0}</td><td>${t.buy_tap || 0}</td><td>${pct(t.finish || 0, t.start || 0)}</td></tr>`; }).join('')}</table></div>`;
+
+  // Awareness
+  html += `<h2>What they have tried (awareness)</h2><div class="wrap"><table><tr><th>Answer</th><th>People</th><th>Of starters</th></tr>
+    ${TRIED.map((t, i) => `<tr><td>${esc(t)}</td><td>${all[`tried_${i}`] || 0}</td><td>${pct(all[`tried_${i}`] || 0, starts)}</td></tr>`).join('')}</table></div>`;
+
+  // Old intake
+  const old = Object.keys(all).filter((k) => /^step_\d+$/.test(k)).sort((a, b) => a.slice(5) - b.slice(5));
+  if (old.length) html += `<details><summary class="note">Steps from the old 13-step intake (before 2 October)</summary><div class="wrap"><table><tr><th>Step</th><th>People</th></tr>${old.map((k) => `<tr><td>${k.slice(5)}</td><td>${all[k]}</td></tr>`).join('')}</table></div></details>`;
+
+  $('out').innerHTML = html;
+}
+
+function link() {
+  $('link').value = `${location.origin}/?src=${$('lp').value}_${$('lt').value}_${$('lh').value}_${$('ln').value || 1}`;
+}
+
+window.renderStats = (data) => { DATA = data; render(); };
+['from', 'hideTest', 'device'].forEach((id) => $(id).addEventListener('input', () => DATA && render()));
+['lp', 'lt', 'lh', 'ln'].forEach((id) => $(id).addEventListener('input', link));
+link();
+fetch('/api/stats').then((r) => r.json()).then(window.renderStats).catch(() => { $('out').textContent = 'Stats only work on the live site.'; });
 </script>
 </body>
 </html>
